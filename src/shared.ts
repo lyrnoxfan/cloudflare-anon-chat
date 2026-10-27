@@ -1,7 +1,7 @@
-export interface Env { DB:D1Database; MEDIA:R2Bucket; ROOMS:DurableObjectNamespace; GUARD:DurableObjectNamespace; ASSETS:Fetcher; APP_SECRET:string; DEV_LOCAL?:string; R2_ACCOUNT_ID?:string; R2_ACCESS_KEY_ID?:string; R2_SECRET_ACCESS_KEY?:string; R2_BUCKET:string; SFU_APP_ID?:string; SFU_APP_SECRET?:string; TURN_KEY_ID?:string; TURN_API_TOKEN?:string }
+export interface Env { DB:D1Database; MEDIA:R2Bucket; ROOMS:DurableObjectNamespace; GUARD:DurableObjectNamespace; ASSETS:Fetcher; APP_SECRET:string; DEV_LOCAL?:string; R2_ACCOUNT_ID?:string; R2_ACCESS_KEY_ID?:string; R2_SECRET_ACCESS_KEY?:string; R2_BUCKET:string; SFU_APP_ID?:string; SFU_APP_SECRET?:string; SFU_DIAGNOSTICS?:string; TURN_KEY_ID?:string; TURN_API_TOKEN?:string }
 export interface Session { id:string; nickname:string; expires:number }
 export const LIMITS={text:4000,nickname:32,roomName:80,passwordMin:8,passwordMax:128,image:10*1024**2,audio:10*1024**2,video:100*1024**2,file:50*1024**2,members:8,sessionMs:7*86400000,grantMs:2*3600000,uploadMs:120000,callLeaseMs:45000};
-export class Fault extends Error { constructor(public status:number,message:string){super(message)} }
+export class Fault extends Error { constructor(public status:number,message:string,public details?:Record<string,unknown>){super(message)} }
 export function need(value:unknown,status=400,message='请求参数不正确'):asserts value {if(!value)throw new Fault(status,message)}
 export const id=()=>crypto.randomUUID();
 export const now=()=>Date.now();

@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let self,room=new URL(location.href).searchParams.get('room')||localStorage.getItem('chat-room')||'lobby';if(!/^[a-zA-Z0-9-]{1,80}$/.test(room))room='lobby';
 let ws,reconnect,heartbeat,next=null,loading=false,connected=false,selected=null,roomGeneration=0,messages=new Map(),uploadTask=null,rec=null,recStream=null,chunks=[],recordBlob=null,recordStarted=0,recordTimer;
 export function notice(s){$('notice').textContent=s}
-export async function api(path,options={}){const res=await fetch(path,{...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});let b;try{b=await res.json()}catch{throw new Error('服务器响应格式异常')}if(!res.ok){const e=new Error(b.error||'请求失败');e.status=res.status;throw e}return b}
+export async function api(path,options={}){const res=await fetch(path,{...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});let b;try{b=await res.json()}catch{throw new Error('服务器响应格式异常')}if(!res.ok){const e=new Error(b.error||'请求失败');e.status=res.status;if(b.diagnostics){e.diagnostics=b.diagnostics;console.error('SFU 诊断信息',b.diagnostics)}throw e}return b}
 const endpoint=(op,arg='')=>`/api/r/${room}/${op}${arg?'/'+encodeURIComponent(arg):''}`;
 export const post=(op,b={},headers={})=>api(endpoint(op),{method:'POST',headers,body:JSON.stringify(b)});
 const call=new CallUI({post,notice,self:()=>self,room:()=>room});
