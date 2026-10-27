@@ -44,7 +44,7 @@ export class ChatRoom {
  }
  if(op.startsWith('call-'))return await this.calls.handle(op,req,s,rid);
  throw new Fault(404,'接口不存在');
- }catch(e){return json({error:e instanceof Fault?e.message:'房间服务暂时不可用'},e instanceof Fault?e.status:500)}})}
+ }catch(e){return json({error:e instanceof Fault?e.message:'房间服务暂时不可用',...(this.env.SFU_DIAGNOSTICS==='true'&&e instanceof Fault&&e.details?{diagnostics:e.details}:{})},e instanceof Fault?e.status:500)}})}
  async webSocketMessage(ws:WebSocket,message:string|ArrayBuffer){try{need(typeof message==='string'&&message.length<200,400);const a=ws.deserializeAttachment() as any;const s=await this.env.DB.prepare('SELECT id,nickname,expires FROM anonymous_sessions WHERE id=? AND expires>?').bind(a.sid,now()).first<Session>();need(s,401);await roomAuth(this.env,a.rid,s);await rate(this.env,'ping:'+s.id,12);if(message==='ping')ws.send(JSON.stringify({type:'pong'}));else need(false,400)}catch{ws.close(4003,'授权过期或消息无效')}}
  async webSocketClose(ws:WebSocket){try{ws.close()}catch{}this.presence()}
  async webSocketError(ws:WebSocket){try{ws.close()}catch{}this.presence()}

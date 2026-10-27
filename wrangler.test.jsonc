@@ -48,7 +48,9 @@
   "vars": {
     "R2_BUCKET": "blue-room-test-media",
     "DEV_LOCAL": "false",
-    "R2_ACCOUNT_ID": "4da041ad422b0c9e0ac5f6a7b3bafeea"
+    "R2_ACCOUNT_ID": "4da041ad422b0c9e0ac5f6a7b3bafeea",
+    "SFU_DIAGNOSTICS": "true",
+    "SFU_APP_ID": "ba6fc55296c9561b99f1c4df6dffb802"
   },
   "triggers": {
     "crons": [
@@ -60,5 +62,14 @@
     "head_sampling_rate": 1
   },
   "account_id": "4da041ad422b0c9e0ac5f6a7b3bafeea",
-  "workers_dev": true
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "chat.lyrnox.com",
+      "zone_name": "lyrnox.com",
+      "custom_domain": true,
+      "enabled": true,
+      "previews_enabled": false
+    }
+  ]
 }

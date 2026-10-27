@@ -39,6 +39,17 @@ export default {
      await rate(env,'join:ip:'+ip+':'+rid,10,60000);await rate(env,'join:s:'+s.id+':'+rid,10,60000);const r=await env.DB.prepare("SELECT * FROM rooms WHERE id=? AND status='active'").bind(rid).first<any>();need(r,404,'房间不存在');if(r.kind==='private'){const b=await body(req);const pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin);need(equal(await password(pw,r.salt,r.iterations),r.password_hash),403,'房间口令不正确');await env.DB.prepare('INSERT INTO room_sessions(room_id,session_id,expires) VALUES(?,?,?) ON CONFLICT(room_id,session_id) DO UPDATE SET expires=excluded.expires').bind(rid,s.id,now()+LIMITS.grantMs).run()}return json({id:r.id,name:r.name,kind:r.kind})
    }
    await roomAuth(env,rid,s);
+   if(op==='upload-content'&&req.method==='PUT'){
+     const u=await env.DB.prepare("SELECT * FROM uploads WHERE id=? AND room_id=? AND author=? AND status='pending' AND expires>?").bind(arg,rid,s.id,now()).first<any>();need(u,403,'上传授权无效或已过期');
+     need(Number(req.headers.get('content-length'))===u.size,413,'上传大小与授权不符');need(req.headers.get('content-type')===u.mime,415,'上传类型与授权不符');need(req.body,400,'上传内容缺失');
+     await rate(env,'proxy-put:'+s.id,10,3600000);await rate(env,'proxy-putip:'+ip,30,3600000);await rate(env,'proxy-bytes:'+s.id,200*1024**2,3600000,u.size);await rate(env,'proxy-bytesip:'+ip,500*1024**2,3600000,u.size);
+     const attemptKey='staging/'+u.id+'/'+id();let committed=false;
+     try{
+       const stored=await env.MEDIA.put(attemptKey,req.body,{httpMetadata:{contentType:u.mime}});need(stored.size===u.size,413,'实际文件大小与授权不符');
+       const update=await env.DB.prepare("UPDATE uploads SET staging_key=? WHERE id=? AND room_id=? AND author=? AND status='pending' AND expires>? AND staging_key=?").bind(attemptKey,u.id,rid,s.id,now(),u.staging_key).run();need(update.meta.changes===1,409,'上传状态已变化，请重新上传');committed=true;
+       await env.MEDIA.delete(u.staging_key);return json({})
+     }catch(e){if(!committed)await env.MEDIA.delete(attemptKey).catch(()=>{});throw e}
+   }
    if(op==='download'&&req.method==='GET'){
      const media=await env.DB.prepare('SELECT * FROM messages WHERE id=? AND room_id=? AND deleted=0 AND object_key IS NOT NULL').bind(arg,rid).first<any>();need(media,404,'文件不存在或已被删除');const scope=`download:${s.id}:${rid}:${arg}`;
      if(!url.searchParams.has('ticket'))return json({url:`${p}?ticket=${await capability(env,scope,now()+60000)}`});
@@ -57,6 +68,7 @@ export default {
  }catch(e){console.error('chat request failure',new URL(req.url).pathname,e instanceof Error?e.name+': '+e.message:'unknown');if(e instanceof Fault)return json({error:e.message},e.status);return json({error:'服务暂时不可用，请稍后重试'},500)}}
 } satisfies ExportedHandler<Env>;
 export async function uploadURL(env:Env,u:any,base:string){if(env.DEV_LOCAL==='true'&&['localhost','127.0.0.1'].includes(new URL(base).hostname))return new URL(`/api/r/${u.room_id}/local-upload/${u.id}`,base).href;
- need(env.R2_ACCOUNT_ID&&env.R2_ACCESS_KEY_ID&&env.R2_SECRET_ACCESS_KEY,503,'R2 直传尚未配置');const client=new AwsClient({accessKeyId:env.R2_ACCESS_KEY_ID,secretAccessKey:env.R2_SECRET_ACCESS_KEY,service:'s3',region:'auto'});
+ if(!env.R2_ACCOUNT_ID||!env.R2_ACCESS_KEY_ID||!env.R2_SECRET_ACCESS_KEY)return new URL(`/api/r/${u.room_id}/upload-content/${u.id}`,base).href;
+ const client=new AwsClient({accessKeyId:env.R2_ACCESS_KEY_ID,secretAccessKey:env.R2_SECRET_ACCESS_KEY,service:'s3',region:'auto'});
  const target=`https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/${u.staging_key}?X-Amz-Expires=120`;
  const signed=await client.sign(target,{method:'PUT',headers:{'Content-Type':u.mime,'Content-Length':String(u.size)},aws:{signQuery:true,allHeaders:true}});return signed.url}

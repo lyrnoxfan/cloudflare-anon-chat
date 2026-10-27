@@ -1,1 +1,76 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1475df"><title>蓝间 · 匿名聊天室</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head><body><div class="shell"><aside><a class="brand" href="/">蓝间<span>ANONYMOUS CHAT</span></a><p class="intro">不必注册，<br>聊一会儿。</p><button id="lobby">公共大厅 <span>↗</span></button><button id="newRoom" class="secondary">创建私人房间</button><div class="aside-bottom"><p>没有账号，也没有预设身份。<br>请不要发送密码或敏感资料。</p><p>聊天记录保存在服务器。<br>这里不提供端到端加密。</p><button id="rename" class="subtle">修改昵称</button></div></aside><main><header><div><div class="eyebrow">此刻，在这里</div><h1 id="roomName">公共大厅</h1><span id="connection" role="status">正在连接…</span></div><button id="share" class="secondary">复制链接</button></header><section class="memberbar"><span id="count">0 人在线</span><div id="members"></div><div class="call-actions"><button id="audioCall" class="secondary">语音</button><button id="videoCall">视频通话</button></div></section><div id="notice" role="status" aria-live="polite"></div><section id="callPanel" class="call-panel" hidden><div id="callInfo"></div><div id="videos"></div><div class="controls"><button id="acceptCall">接听 / 加入</button><button id="declineCall" class="secondary">拒绝</button><button id="mute" class="secondary" hidden>麦克风开</button><button id="camera" class="secondary" hidden>摄像头开</button><button id="flip" class="secondary" hidden>切换镜头</button><button id="hangup" class="danger" hidden>挂断</button></div></section><section id="messages" aria-label="聊天消息" tabindex="0"><button id="older" class="subtle" hidden>加载更早消息</button><div id="messageList"></div><div id="pending"></div><p id="empty" class="empty">这里还很安静。<br><span>发一句话，开始今天的对话。</span></p></section><button id="unread" hidden>有新消息 · 回到底部 ↓</button><section id="uploadStatus" hidden></section><section id="recorder" hidden><span id="recordTime">00:00</span><audio id="recordPreview" controls hidden></audio><button id="stopRecord">停止</button><button id="sendRecord" hidden>发送语音</button><button id="cancelRecord" class="secondary">取消</button></section><form id="composer"><div class="tools"><label class="fileButton" tabindex="0" role="button" aria-label="上传图片、视频或文件">＋<input id="file" type="file" hidden></label><button type="button" id="record" class="secondary" aria-label="录制语音">录音</button></div><textarea id="messageText" rows="1" maxlength="4000" placeholder="说点什么…" aria-label="消息内容"></textarea><button type="submit" id="send">发送</button></form><footer><span><span id="identity"></span><button id="renameMobile" type="button">修改昵称</button></span><span>Shift + Enter 换行</span></footer></main></div><dialog id="entry"><form id="entryForm"><div class="eyebrow">欢迎来到蓝间</div><h2>怎么称呼你？</h2><p>昵称不是账号，可以和别人重名。</p><label>昵称<input id="nickname" maxlength="32" required autocomplete="nickname"></label><p id="entryError" class="error"></p><button>进入聊天</button></form></dialog><dialog id="private"><form id="privateForm"><div class="eyebrow">仅凭口令进入</div><h2 id="privateTitle">创建私人房间</h2><label id="roomLabel">房间名称<input id="roomInput" maxlength="80"></label><label>房间口令<input id="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><p>至少 8 个字符。链接不能代替口令。</p><p id="privateError" class="error"></p><div class="row"><button id="privateCancel" type="button" class="secondary">取消</button><button>继续</button></div></form></dialog><dialog id="lightbox"><button id="closeLightbox" class="secondary">关闭</button><img id="fullImage" alt="放大的聊天图片" hidden><video id="fullVideo" controls playsinline hidden></video></dialog></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#1475df">
+  <meta name="color-scheme" content="light dark">
+  <title>蓝间 · 匿名聊天室</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <button class="drawer-backdrop" id="drawerBackdrop" aria-label="关闭导航菜单" tabindex="-1"></button>
+  <div class="shell">
+    <aside id="sidebar" aria-label="聊天室导航">
+      <a class="brand" href="/" aria-label="蓝间首页"><span class="brand-mark" aria-hidden="true">蓝</span><span class="brand-name">蓝间</span><span class="brand-caption">随时聊两句</span></a>
+      <div class="sidebar-section-label">聊天室</div>
+      <button id="lobby" class="nav-item is-current" type="button"><span class="nav-icon" aria-hidden="true">⌂</span><span>公共大厅</span><span class="nav-chevron" aria-hidden="true">›</span></button>
+      <button id="newRoom" class="nav-item" type="button"><span class="nav-icon" aria-hidden="true">＋</span><span>创建私人房间</span></button>
+      <div class="sidebar-spacer"></div>
+      <div class="privacy-note"><span aria-hidden="true">◌</span><span>匿名聊天，无需注册。请勿发送密码或敏感资料。</span></div>
+      <button id="rename" class="profile-button" type="button"><span class="profile-glyph" aria-hidden="true">☺</span><span class="profile-copy"><strong>修改昵称</strong><small>当前身份仅保存在会话中</small></span><span aria-hidden="true">›</span></button>
+    </aside>
+    <main>
+      <header class="topbar">
+        <button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="打开导航菜单" aria-expanded="false"><span aria-hidden="true">☰</span></button>
+        <div class="room-heading">
+          <div class="room-icon" aria-hidden="true">聊</div>
+          <div class="room-title-wrap"><h1 id="roomName">公共大厅</h1><span id="connection" class="connection connecting" role="status" aria-live="polite">正在连接…</span></div>
+        </div>
+        <div class="top-actions">
+          <button id="audioCall" class="icon-button" type="button" aria-label="发起语音通话" title="语音通话"><span aria-hidden="true">☎</span></button>
+          <button id="videoCall" class="icon-button" type="button" aria-label="发起视频通话" title="视频通话"><span aria-hidden="true">▣</span></button>
+          <button id="share" class="icon-button" type="button" aria-label="复制房间链接" title="复制链接"><span aria-hidden="true">↗</span></button>
+        </div>
+      </header>
+      <section class="memberbar" aria-label="在线成员">
+        <button id="count" class="member-count" type="button" aria-expanded="false" aria-controls="members">0 人在线 <span aria-hidden="true">⌄</span></button>
+        <div id="members" class="members-list"></div>
+      </section>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="callPanel" class="call-panel" aria-label="通话面板" hidden>
+        <div class="call-panel-heading"><div class="call-live-dot" aria-hidden="true"></div><div id="callInfo"></div></div>
+        <div id="videos" aria-live="polite"></div>
+        <div class="controls">
+          <button id="acceptCall" type="button" class="call-control accept"><span aria-hidden="true">☎</span><span>接听 / 加入</span></button>
+          <button id="declineCall" type="button" class="call-control secondary"><span aria-hidden="true">×</span><span>拒绝</span></button>
+          <button id="mute" type="button" class="call-control secondary" hidden><span aria-hidden="true">♬</span><span>麦克风开</span></button>
+          <button id="camera" type="button" class="call-control secondary" hidden><span aria-hidden="true">▣</span><span>摄像头开</span></button>
+          <button id="flip" type="button" class="call-control secondary" hidden><span aria-hidden="true">⟳</span><span>切换镜头</span></button>
+          <button id="hangup" type="button" class="call-control danger" hidden><span aria-hidden="true">☎</span><span>挂断</span></button>
+        </div>
+      </section>
+      <section id="messages" aria-label="聊天消息" tabindex="0">
+        <div class="history-tools"><button id="older" class="load-older" type="button" hidden>↑　加载更早消息</button></div>
+        <div id="messageList" aria-live="off"></div>
+        <div id="messageAnnouncements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="pending" class="pending-list" aria-live="polite"></div>
+        <p id="empty" class="empty"><span class="empty-mark" aria-hidden="true">◌</span><strong>这里还很安静</strong><span>发一句话，开始今天的对话。</span></p>
+      </section>
+      <button id="unread" class="unread-pill" type="button" hidden>有新消息 · 回到底部 ↓</button>
+      <section id="uploadStatus" class="upload-status" aria-live="polite" hidden></section>
+      <section id="recorder" class="recorder" aria-label="语音录制控制" hidden><span class="record-indicator" aria-hidden="true"></span><span id="recordTime">00:00</span><audio id="recordPreview" controls hidden></audio><button id="stopRecord" type="button">停止</button><button id="sendRecord" type="button" hidden>发送语音</button><button id="cancelRecord" type="button" class="secondary">取消</button></section>
+      <form id="composer" aria-label="发送消息">
+        <div class="composer-tools"><label class="fileButton icon-button" tabindex="0" role="button" aria-label="上传图片、视频或文件" title="添加附件"><span aria-hidden="true">＋</span><input id="file" type="file" hidden></label><button type="button" id="record" class="icon-button" aria-label="录制语音" title="录制语音"><span aria-hidden="true">◖</span></button></div>
+        <textarea id="messageText" rows="1" maxlength="4000" placeholder="说点什么…" aria-label="消息内容"></textarea>
+        <button type="submit" id="send" aria-label="发送消息" disabled><span aria-hidden="true">➤</span></button>
+      </form>
+      <footer><span><span id="identity"></span><button id="renameMobile" type="button">修改昵称</button></span><span class="keyboard-hint">Enter 发送 · Shift + Enter 换行</span></footer>
+    </main>
+  </div>
+  <dialog id="entry" class="modal-dialog"><form id="entryForm" method="dialog"><div class="dialog-symbol" aria-hidden="true">☺</div><div class="eyebrow">欢迎来到蓝间</div><h2>怎么称呼你？</h2><p>昵称不是账号，可以和别人重名。</p><label>昵称<input id="nickname" maxlength="32" required autocomplete="nickname"></label><p id="entryError" class="error" role="alert"></p><button type="submit" class="primary-action">进入聊天</button></form></dialog>
+  <dialog id="private" class="modal-dialog"><form id="privateForm"><div class="dialog-symbol" aria-hidden="true">⌑</div><div class="eyebrow">仅凭口令进入</div><h2 id="privateTitle">创建私人房间</h2><label id="roomLabel">房间名称<input id="roomInput" maxlength="80" autocomplete="off"></label><label>房间口令<input id="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><p>至少 8 个字符。链接不能代替口令。</p><p id="privateError" class="error" role="alert"></p><div class="dialog-actions"><button id="privateCancel" type="button" class="secondary">取消</button><button type="submit" class="primary-action">继续</button></div></form></dialog>
+  <dialog id="lightbox" class="lightbox-dialog"><button id="closeLightbox" class="icon-button lightbox-close" type="button" aria-label="关闭图片预览">×</button><img id="fullImage" alt="放大的聊天图片" hidden><video id="fullVideo" controls playsinline hidden></video></dialog>
+</body>
+</html>

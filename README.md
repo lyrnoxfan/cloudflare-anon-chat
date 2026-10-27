@@ -1,14 +1,14 @@
 # 蓝间：Cloudflare 匿名聊天室
 
-当前部署状态与未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`workers.dev` 地址仍有 1101；自定义测试域名 `https://chat.lyrnox.com` 已恢复响应，双浏览器线上基础验收 4/4 通过，真实 R2 与 SFU 媒体仍未验收。
+当前部署状态与未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`workers.dev` 地址仍有 1101；自定义测试域名 `https://chat.lyrnox.com` 用于隔离测试 Worker。部署和验收记录见下方文档。
 
 一个独立的 TypeScript Worker 项目。页面与 API 同源，由一个 Worker 提供静态资源；房间 Durable Object 负责顺序写入后的广播与 WebSocket Hibernation，D1 保存房间/消息/匿名权限/通话记录，私有 R2 保存文件，Cloudflare Realtime SFU 转发媒体。不是静态聊天演示，没有预置消息、模拟在线人数或假通话。
 
 ## 交付状态：请先读
 
-已经实际通过本机 Wrangler/D1/R2/DO 模拟器和 Chromium 双独立浏览器会话测试：免注册大厅、真实 WebSocket 收发、刷新历史、发送幂等、作者删除、私人房间口令/隔离、文件上传确认/短票据下载/删除、图片解码和浏览器录制视频的真实上传展示、麦克风 MediaRecorder 录制与音频解码、XSS 纯文本、错误及跨站请求校验。类型检查、JS 语法与 Wrangler 打包已实际执行。本次11项测试通过：9项本地集成与2项SFU适配器桩服务合同检查；后两项不是实际SFU传输测试。浏览器使用合成麦克风/摄像头，不等于手机真机验收。
+已经实际通过本机 Wrangler/D1/R2/DO 模拟器和 Chromium 双独立浏览器会话测试：免注册大厅、真实 WebSocket 收发、刷新历史、发送幂等、作者删除、私人房间口令/隔离、文件上传确认/短票据下载/删除、图片解码和浏览器录制视频的真实上传展示、麦克风 MediaRecorder 录制与音频解码、XSS 纯文本、错误及跨站请求校验。类型检查、JS 语法与 Wrangler 打包已实际执行。本地集成与 SFU 合同测试会随功能迭代更新；只有本地浏览器模拟器测试通过不等于 Cloudflare 线上或手机真机验收。
 
-SFU 发布/订阅、邀请、接听/拒绝、通话参与者租约、挂断、强制关闭轨道、TURN、音视频控制、设备切换与有限重连的代码均已编写，按官方 OpenAPI 实现。**2026-10-27 UTC 对 `chat.lyrnox.com` 的只读核验中，首页返回 200、未登录 `GET /api/session` 返回 JSON 401；双浏览器远程验收 4/4 通过，明确检查首页 200、未登录 `/api/session` JSON 401，并覆盖消息实时收发与刷新持久化、私人房间权限、CSRF/XSS 防护及未配置凭据时的明确失败。`workers.dev` 仍报告 1101。SFU 密钥尚未配置，真实 SFU 媒体传输没有通过验收。**缺少 SFU 配置时返回明确 503，不假装连通。真实 R2 S3 预签名跨域直传同样必须部署后验收；本地测试使用 R2 binding 模拟器端点而非冒充真实 S3。
+SFU 使用 Cloudflare Realtime 的发布/订阅、协商、参与者租约和轨道控制。线上真实媒体是否通过，以 `docs/DEPLOYMENT_STATUS.md` 中带日期的双浏览器结果为准；测试浏览器合成媒体不等于手机真机验收。未配置 SFU 时相关接口明确返回 503。
 
 现有隔离测试 Worker 已由站主配置并部署；本仓库上传没有触发 Cloudflare 部署、创建资源或升级套餐。`wrangler.test.jsonc` 指向隔离测试资源；不要将线上测试命令指向生产 Worker。
 
@@ -57,15 +57,15 @@ pnpm exec wrangler secret put APP_SECRET
 # 输入随机生成的至少32字符安全密钥，不使用聊天室口令
 ```
 
-R2 bucket 保持 Private，不开启 r2.dev public access 或公开域名。创建只读写这个 bucket 的 R2 S3 API Token（控制台 R2 → Manage R2 API Tokens → Object Read & Write → 指定该 bucket）。Worker 使用 binding 做确认与下载，S3 key 仅在服务端签预签名 PUT。配置：
+R2 bucket 保持 Private，不开启 r2.dev public access 或公开域名。Worker 的 `MEDIA` binding 负责上传兜底、确认、删除和授权下载，不需要 S3 API 密钥。若没有 S3 凭据，浏览器把文件流式发到同源 Worker，Worker 再流式写入私有桶；不会把文件整体读入内存，但会经过 Worker。若希望浏览器直接 PUT 到 R2，可创建仅对目标 bucket 有 Object Read & Write 权限的 R2 S3 API Token（控制台 R2 → Manage R2 API Tokens → Object Read & Write → 指定该 bucket），随后将以下值安全设置为 Worker secrets/vars：
 
 ```sh
-pnpm exec wrangler secret put R2_ACCOUNT_ID
 pnpm exec wrangler secret put R2_ACCESS_KEY_ID
 pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY
+# R2_ACCOUNT_ID 是账号 ID，不是秘密；在 Worker vars 中配置。
 ```
 
-不要把 Cloudflare 全账号 API token 当成 R2 Access Key；不要粘贴到前端、Git 或聊天记录。设置 `wrangler.jsonc` 的 `R2_BUCKET` 与真实名称一致。
+不要把 Cloudflare 全账号 API token 当成 R2 Access Key；不要粘贴到前端、Git 或聊天记录。设置 `wrangler.jsonc` 的 `R2_BUCKET` 与真实名称一致。配置 S3 凭据后，服务端签发预签名 PUT；未配置时自动使用同源 Worker 流式路径，不会因此禁用文件消息。
 
 ### R2 CORS 和清理
 
@@ -76,7 +76,7 @@ pnpm exec wrangler r2 bucket cors set anonymous-chat-media --file r2-cors.exampl
 pnpm exec wrangler r2 bucket cors list anonymous-chat-media
 ```
 
-浏览器直接以 PUT 上传到 R2 S3 endpoint。Content-Type 和 Content-Length 都签入，URL 有效 120 秒；浏览器自动发送实际 Content-Length，不要在 JS 手工设置这个受限头。签名不匹配、R2 CORS 或超时都会返回失败，不写正式消息。泄漏 URL 在过期前仍可重复 PUT，**不是一次性 URL，也不能声称立刻吊销**。对象先落随机 staging/ 路径，确认后通过 R2 stream 复制至另一个从未暴露写授权的 media/ 路径，再事务写消息并广播，避免旧 PUT 覆盖已发送文件。
+配置 S3 token 时，浏览器以 PUT 直接上传到 R2 S3 endpoint；`Content-Type` 与 `Content-Length` 签入，有效期 120 秒，浏览器自动发送 `Content-Length`。该模式需要 bucket CORS。没有 S3 token 时，浏览器改为同源 Worker PUT，Worker 以 `MEDIA` binding 将 request body 流式写到随机 staging key，并用条件更新解决并发/取消竞争。两种方式上传完成后都由服务端检查大小/类型，确认时再 stream-copy 到从未暴露写授权的 `media/` key，随后写消息并广播。S3 预签名 URL 在过期前可重复 PUT，**不是一次性 URL，也不能声称立刻吊销**。
 
 15 分钟 Cron 清理待上传/取消/已完成 staging 及删除队列。已完成消息无自动 TTL。建议另设 R2 生命周期规则：仅 `staging/` 前缀 1 天过期，作为任务失败时兜底，**不要给整个 bucket 设置自动删除**。本项目每次 Cron 最多处理各100项；大规模使用需监控积压、增加批量预算/清理频次。删除后数据库消息立即变为 tombstone，下载立即拒绝；R2 文件由垃圾队列在下一次成功 Cron 删除，不冒称瞬间物理擦除。浏览器已下载内容及已经开始的下载无法撤销。
 
