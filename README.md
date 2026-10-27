@@ -1,6 +1,6 @@
 # 蓝间：Cloudflare 匿名聊天室
 
-当前隔离部署与未完成事项见 [部署状态](docs/DEPLOYMENT_STATUS.md)。公开测试地址尚不可用，不能把源码交付当作上线完成。
+当前部署状态与未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`workers.dev` 地址仍有 1101；自定义测试域名 `https://chat.lyrnox.com` 已恢复响应，双浏览器线上基础验收 4/4 通过，真实 R2 与 SFU 媒体仍未验收。
 
 一个独立的 TypeScript Worker 项目。页面与 API 同源，由一个 Worker 提供静态资源；房间 Durable Object 负责顺序写入后的广播与 WebSocket Hibernation，D1 保存房间/消息/匿名权限/通话记录，私有 R2 保存文件，Cloudflare Realtime SFU 转发媒体。不是静态聊天演示，没有预置消息、模拟在线人数或假通话。
 
@@ -8,9 +8,9 @@
 
 已经实际通过本机 Wrangler/D1/R2/DO 模拟器和 Chromium 双独立浏览器会话测试：免注册大厅、真实 WebSocket 收发、刷新历史、发送幂等、作者删除、私人房间口令/隔离、文件上传确认/短票据下载/删除、图片解码和浏览器录制视频的真实上传展示、麦克风 MediaRecorder 录制与音频解码、XSS 纯文本、错误及跨站请求校验。类型检查、JS 语法与 Wrangler 打包已实际执行。本次11项测试通过：9项本地集成与2项SFU适配器桩服务合同检查；后两项不是实际SFU传输测试。浏览器使用合成麦克风/摄像头，不等于手机真机验收。
 
-SFU 发布/订阅、邀请、接听/拒绝、通话参与者租约、挂断、强制关闭轨道、TURN、音视频控制、设备切换与有限重连的代码均已编写，按官方 OpenAPI 实现，**隔离Worker已发布，但公开地址返回1101，且未配置SFU App/Secret和远端参与设备；没有验证实际SFU媒体传输，不能称线上可用或全功能生产验收完成**。缺少 SFU 配置时返回明确 503，不假装连通。真实 R2 S3 预签名跨域直传同样必须部署后验收；本地测试使用 R2 binding 模拟器端点而非冒充真实 S3。
+SFU 发布/订阅、邀请、接听/拒绝、通话参与者租约、挂断、强制关闭轨道、TURN、音视频控制、设备切换与有限重连的代码均已编写，按官方 OpenAPI 实现。**2026-10-27 UTC 对 `chat.lyrnox.com` 的只读核验中，首页返回 200、未登录 `GET /api/session` 返回 JSON 401；双浏览器远程验收 4/4 通过，明确检查首页 200、未登录 `/api/session` JSON 401，并覆盖消息实时收发与刷新持久化、私人房间权限、CSRF/XSS 防护及未配置凭据时的明确失败。`workers.dev` 仍报告 1101。SFU 密钥尚未配置，真实 SFU 媒体传输没有通过验收。**缺少 SFU 配置时返回明确 503，不假装连通。真实 R2 S3 预签名跨域直传同样必须部署后验收；本地测试使用 R2 binding 模拟器端点而非冒充真实 S3。
 
-未执行远程建库/开通付费产品/推送仓库/生产部署。下面包含操作者可以复现的步骤。
+现有隔离测试 Worker 已由站主配置并部署；本仓库上传没有触发 Cloudflare 部署、创建资源或升级套餐。`wrangler.test.jsonc` 指向隔离测试资源；不要将线上测试命令指向生产 Worker。
 
 ## 1. 安装与本地运行
 
@@ -30,11 +30,13 @@ pnpm dev
 ```sh
 pnpm exec playwright install --with-deps chromium
 pnpm check
-# 单独执行：pnpm typecheck；pnpm test
+# 单独执行：pnpm typecheck；pnpm test（仅本地测试）
+# 双浏览器线上验收（会在隔离测试 D1 留下测试会话/房间/消息）：pnpm test:remote
+# 线上目标默认 https://chat.lyrnox.com；临时覆盖：CHAT_TEST_BASE_URL=https://chat.example.com pnpm test:remote
 # 打包检查（不部署）：pnpm exec wrangler deploy --dry-run --outdir .build
 ```
 
-测试会启动 8787 端口本地 Wrangler；测试前关闭手动启动的本地实例。测试需要配置 .dev.vars；集成测试自动创建独立临时模拟库、执行迁移，结束后清理，不使用你的开发库或远程数据库。`tests/latest-run.txt` 是本次真实执行记录，截图在 `tests/`。CI workflow 只做本地验证，**不会部署**；未推送，所以未运行 GitHub Actions。执行 `pnpm test` 自身只打印测试结果，需要保存时可重定向到其他日志文件。
+本地测试 `pnpm test` 会启动 8787 端口的 Wrangler；测试前关闭手动启动的本地实例。它需要配置 `.dev.vars`，并自动创建独立临时模拟库、执行迁移，结束后清理，不使用开发库或远程数据库。线上 `pnpm test:remote` 是单独命令，使用两个独立浏览器并会在目标测试 Worker 的 D1 写入测试会话、消息和私人房间记录；不要对生产运行。当前仓库没有配置 GitHub Actions。测试结果打印在终端；本地截图写入 `tests/`，远程截图写入 `test-results/`，这些生成文件不进版本库。
 
 ## 2. Cloudflare 初始化与部署（自行确认后执行）
 
