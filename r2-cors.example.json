@@ -1,0 +1,6 @@
+{
+  "rules": [{
+    "allowed": {"origins": ["https://chat.example.com"], "methods": ["PUT"], "headers": ["Content-Type", "Content-Length"]},
+    "exposeHeaders": ["ETag"], "maxAgeSeconds": 120
+  }]
+}

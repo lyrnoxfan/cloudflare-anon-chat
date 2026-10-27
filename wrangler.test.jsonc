@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blue-room-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-27",
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blue-room-test-db",
+      "database_id": "9c8d9492-1b93-4fd6-accf-530ed511926d",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "blue-room-test-media"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "ChatRoom"
+      },
+      {
+        "name": "GUARD",
+        "class_name": "Guard"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ChatRoom",
+        "Guard"
+      ]
+    }
+  ],
+  "vars": {
+    "R2_BUCKET": "blue-room-test-media",
+    "DEV_LOCAL": "false",
+    "R2_ACCOUNT_ID": "4da041ad422b0c9e0ac5f6a7b3bafeea"
+  },
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "account_id": "4da041ad422b0c9e0ac5f6a7b3bafeea",
+  "workers_dev": true
+}

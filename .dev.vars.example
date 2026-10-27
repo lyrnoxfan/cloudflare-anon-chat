@@ -1,0 +1,14 @@
+# Copy to .dev.vars for LOCAL use only. Never commit .dev.vars.
+DEV_LOCAL=true
+# Generate: openssl rand -hex 32 (at least 32 random characters)
+APP_SECRET=replace-with-at-least-32-random-characters
+# Remote R2 direct uploads; omit for local R2 binding upload testing
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+# Required for real calls (local text/media do not require these)
+SFU_APP_ID=
+SFU_APP_SECRET=
+# Optional, recommended for restrictive networks
+TURN_KEY_ID=
+TURN_API_TOKEN=

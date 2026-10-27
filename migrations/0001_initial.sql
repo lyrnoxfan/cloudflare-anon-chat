@@ -1,0 +1,14 @@
+PRAGMA foreign_keys=ON;
+CREATE TABLE rooms(id TEXT PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('public','private')),password_hash TEXT,salt TEXT,iterations INTEGER,created INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'active');
+INSERT INTO rooms(id,name,kind,created) VALUES('lobby','公共大厅','public',0);
+CREATE TABLE anonymous_sessions(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,nickname TEXT NOT NULL,created INTEGER NOT NULL,expires INTEGER NOT NULL);
+CREATE INDEX sessions_expiry ON anonymous_sessions(expires);
+CREATE TABLE room_sessions(room_id TEXT NOT NULL REFERENCES rooms(id),session_id TEXT NOT NULL REFERENCES anonymous_sessions(id),expires INTEGER NOT NULL,PRIMARY KEY(room_id,session_id));
+CREATE TABLE messages(id TEXT PRIMARY KEY,room_id TEXT NOT NULL REFERENCES rooms(id),author TEXT NOT NULL,nickname TEXT NOT NULL,client_id TEXT NOT NULL,kind TEXT NOT NULL,text TEXT,object_key TEXT,mime TEXT,size INTEGER,filename TEXT,duration REAL,created INTEGER NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,UNIQUE(room_id,author,client_id));
+CREATE INDEX room_history ON messages(room_id,created DESC,id DESC);
+CREATE TABLE uploads(id TEXT PRIMARY KEY,room_id TEXT NOT NULL,author TEXT NOT NULL,client_id TEXT NOT NULL,staging_key TEXT NOT NULL,final_key TEXT NOT NULL,size INTEGER NOT NULL,mime TEXT NOT NULL,filename TEXT NOT NULL,kind TEXT NOT NULL,duration REAL,expires INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',UNIQUE(room_id,author,client_id));
+CREATE INDEX uploads_expiry ON uploads(status,expires);
+CREATE TABLE garbage(object_key TEXT PRIMARY KEY,created INTEGER NOT NULL);
+CREATE TABLE calls(id TEXT PRIMARY KEY,room_id TEXT NOT NULL,kind TEXT NOT NULL,owner TEXT NOT NULL,started INTEGER NOT NULL,ended INTEGER,status TEXT NOT NULL,reason TEXT);
+CREATE TABLE call_participants(call_id TEXT NOT NULL,session_id TEXT NOT NULL,nickname TEXT NOT NULL,joined INTEGER NOT NULL,left_at INTEGER,PRIMARY KEY(call_id,session_id));
+CREATE TABLE rate_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,expires INTEGER NOT NULL);

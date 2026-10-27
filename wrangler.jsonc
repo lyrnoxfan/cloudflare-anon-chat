@@ -1,0 +1,12 @@
+{
+ "$schema":"node_modules/wrangler/config-schema.json",
+ "name":"anonymous-chat", "main":"src/index.ts", "compatibility_date":"2026-10-27",
+ "assets":{"directory":"public","binding":"ASSETS","run_worker_first":true},
+ "d1_databases":[{"binding":"DB","database_name":"chat","database_id":"REPLACE_WITH_D1_DATABASE_ID","migrations_dir":"migrations"}],
+ "r2_buckets":[{"binding":"MEDIA","bucket_name":"anonymous-chat-media"}],
+ "durable_objects":{"bindings":[{"name":"ROOMS","class_name":"ChatRoom"},{"name":"GUARD","class_name":"Guard"}]},
+ "migrations":[{"tag":"v1","new_sqlite_classes":["ChatRoom","Guard"]}],
+ "vars":{"R2_BUCKET":"anonymous-chat-media","DEV_LOCAL":"false"},
+ "triggers":{"crons":["*/15 * * * *"]},
+ "observability":{"enabled":false}
+}
