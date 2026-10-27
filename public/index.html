@@ -53,7 +53,8 @@
       </section>
       <section id="messages" aria-label="聊天消息" tabindex="0">
         <div class="history-tools"><button id="older" class="load-older" type="button" hidden>↑　加载更早消息</button></div>
-        <div id="messageList" aria-live="polite" aria-relevant="additions text"></div>
+        <div id="messageList" aria-live="off"></div>
+        <div id="messageAnnouncements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
         <div id="pending" class="pending-list" aria-live="polite"></div>
         <p id="empty" class="empty"><span class="empty-mark" aria-hidden="true">◌</span><strong>这里还很安静</strong><span>发一句话，开始今天的对话。</span></p>
       </section>

@@ -4,7 +4,7 @@
 
 ## 当前测试部署
 
-- 最近一次测试 Worker 部署版本：`050df849-8043-43c3-a9a0-edfaef405a09`。
+- 最近一次已记录的测试 Worker 部署版本：`c32e2e02-5d47-4952-a1a7-5e07fe57ebe8`（2026-10-27 的 UI 改版部署记录；本轮未部署）。
 - 部署检查确认目标为 `blue-room-test`，站点入口为 `chat.lyrnox.com`；保留现有 ChatRoom/Guard Durable Objects、`blue-room-test-db` D1、`blue-room-test-media` R2 和静态资源绑定。没有重建或清空这些资源。
 - 当前 R2 上传实现支持在没有 S3 access key 时使用同源 Worker 流式上传；如果之后安全配置了 S3 凭据，代码仍可走签名直传分支。当前 Worker 未配置 `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`，所以浏览器直传 S3 模式尚未启用。
 
