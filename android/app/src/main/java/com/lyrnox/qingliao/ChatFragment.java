@@ -1719,6 +1719,26 @@ public final class ChatFragment extends Fragment {
     return new SimpleDateFormat(pattern, Locale.CHINA).format(new Date(ms));
   }
 
+  private String firstCodePoint(String value) {
+    if (value == null || value.trim().isEmpty()) return "?";
+    return value.trim().substring(0, value.trim().offsetByCodePoints(0, 1));
+  }
+
+  private int avatarColor(String nickname) {
+    int[] colors = {
+      Color.rgb(184, 202, 167), Color.rgb(166, 193, 154), Color.rgb(200, 213, 187),
+      Color.rgb(180, 201, 179), Color.rgb(181, 199, 162), Color.rgb(191, 208, 184)
+    };
+    String value = nickname == null || nickname.isEmpty() ? "?" : nickname;
+    int hash = 0x811c9dc5;
+    for (int i = 0; i < value.length(); ) {
+      int codePoint = value.codePointAt(i);
+      hash = (hash ^ codePoint) * 0x01000193;
+      i += Character.charCount(codePoint);
+    }
+    return colors[Integer.remainderUnsigned(hash, colors.length)];
+  }
+
   private final class MessageAdapter extends BaseAdapter {
     public int getCount() {
       return messages.length();
@@ -1746,7 +1766,7 @@ public final class ChatFragment extends Fragment {
       boolean groupEnd = following == null || !MessageGrouping.sameGroup(
           mine, nick, ts, following.optBoolean("mine"), following.optString("nickname", "匿名"),
           following.optLong("created"));
-      row.setPadding(dp(4), dp(grouped ? 1 : 5), dp(4), dp(groupEnd ? 18 : 1));
+      row.setPadding(0, dp(grouped ? 1 : 5), 0, dp(groupEnd ? 18 : 1));
       if (p == 0
           || !time(ts, "yyyy-MM-dd")
               .equals(time(getItem(p - 1).optLong("created"), "yyyy-MM-dd"))) {
@@ -1760,6 +1780,22 @@ public final class ChatFragment extends Fragment {
         lp.topMargin = dp(8);
         row.addView(day, lp);
       }
+      LinearLayout messageRow = new LinearLayout(getActivity());
+      messageRow.setOrientation(LinearLayout.HORIZONTAL);
+      messageRow.setGravity(Gravity.TOP);
+      messageRow.setPadding(dp(mine ? 42 : 4), 0, dp(4), 0);
+      if (!mine) {
+        TextView avatar = text(firstCodePoint(nick), 12, Color.rgb(52, 72, 46));
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setContentDescription(nick);
+        avatar.setBackground(shape(avatarColor(nick), 50));
+        avatar.setVisibility(groupEnd ? View.VISIBLE : View.INVISIBLE);
+        LinearLayout.LayoutParams avatarParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        avatarParams.rightMargin = dp(8);
+        avatarParams.bottomMargin = dp(24);
+        avatarParams.gravity = Gravity.BOTTOM;
+        messageRow.addView(avatar, avatarParams);
+      }
       LinearLayout wrap = vertical();
       wrap.setGravity(mine ? Gravity.END : Gravity.START);
       if (!mine && !grouped) {
@@ -1770,7 +1806,7 @@ public final class ChatFragment extends Fragment {
       TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd);
       bubble.setLineSpacing(dp(3), 1);
       bubble.setMaxWidth(
-          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(84)));
+          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 126)));
       bubble.setPadding(dp(15), dp(11), dp(15), dp(11));
       String kind = m.optString("kind");
       if (deleted) bubble.setText("消息已删除");
@@ -1793,8 +1829,9 @@ public final class ChatFragment extends Fragment {
         stamp.setPadding(dp(12), dp(3), dp(12), 0);
         wrap.addView(stamp);
       }
-      LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(-1, -2);
-      row.addView(wrap, wp);
+      LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1f);
+      messageRow.addView(wrap, wp);
+      row.addView(messageRow, new LinearLayout.LayoutParams(-1, -2));
       if (!deleted) {
         bubble.setOnLongClickListener(
             v -> {
