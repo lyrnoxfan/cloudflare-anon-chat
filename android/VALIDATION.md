@@ -163,3 +163,8 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 - WebRTC 方面仅验证代码中的通话目标路由与 UI 可见控制；没有第二位真实成员/两台设备，也没有实际检查相机、麦克风采集、ICE 连通、远端视频/音频或双端通话。因此这些端到端能力仍未验收。昵称创建本次通过本地 mock 接口进入聊天；不是实际线上会话。
 - 应用代码提交与成功构建的初始 GitHub Actions workflow 分别为 `826cf9c` 与 run `40698261132`，但该 Actions 失败：旧 workflow 调用不存在的 `assembleDebugAndroidTest` Gradle task。随后修复 workflow 改为只构建隔离 QA app、QA instrumentation 与 lint，避免 CI 产物误用生产 applicationId；最终修复 workflow/验证文档提交及其 Actions 结果见本节追加记录。
 - `deliver/` 未加入版本控制，原有 0.1.1 APK/数据未修改；未部署 Cloudflare、未发布 GitHub Release。
+
+### 0.2.1 CI 交付收据补记
+
+- workflow/验证记录提交 `b0510c42fae95ed8ac185fbe70a83857102e1d8d` 已推送至 `main`。GitHub Actions `40699516995` 成功，checkout head SHA 与该提交完全一致；QA app、instrumentation APK、lint 及 artifact 上传均通过：[运行记录](https://github.com/lyrnoxfan/cloudflare-anon-chat/actions/runs/40699516995)。该提交仅包含 QA workflow、验证文档和模拟器证据图；应用代码仍来自前述 `826cf9c`。
+- CI APK 元数据：`com.lyrnox.qingliao.qa`，0.2.1-qa / versionCode 12；29,099,079 bytes。Actions artifact 中 SHA-256 `6ea4a713e9b18329bba876122161a1c2bf0167ca79a1684ff8d2b38cd6f37b70`，重新计算一致；v2 Debug 签名验证通过。配套 instrumentation APK SHA-256 `74259cbdc8c7d401ae574cfcb0a48460bb176c1c48fbeac2a767ccfc19211d98`。这是与生产 package ID 分开的 QA 包，非 release 签名。
