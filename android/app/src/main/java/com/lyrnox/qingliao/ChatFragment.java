@@ -84,6 +84,11 @@ public final class ChatFragment extends Fragment {
   private long recordStart;
   private AlertDialog recordingDialog, nicknamePrompt;
   private MediaPlayer player;
+  private VideoView activeInlineVideo;
+  private File activeInlineVideoFile;
+  private TextView inlineVideoPlaceholder;
+  private String inlineVideoLoadingId = "";
+  private int inlineVideoGeneration = 0;
   private AudioPlayback activeAudio;
   private Runnable audioProgress;
   private int audioGeneration = 0;
@@ -117,6 +122,7 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
+    applyPalette();
     setRetainInstance(true);
     core = new NativeCore();
     net = new ChatNet(getActivity());
@@ -143,12 +149,37 @@ public final class ChatFragment extends Fragment {
     return Math.round(n * getResources().getDisplayMetrics().density);
   }
 
-  private final int bg = Color.rgb(248, 250, 243),
-      ink = Color.rgb(37, 45, 37),
-      green = Color.rgb(82, 107, 64),
-      pale = Color.rgb(234, 240, 227),
-      mine = Color.rgb(215, 229, 188),
+  private int bg, ink, green, pale, mine, muted, line, emptyMark, avatarInk, controlMuted;
+  private boolean nightMode;
+
+  private void applyPalette() {
+    nightMode = (getResources().getConfiguration().uiMode &
+        android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+        == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    if (nightMode) {
+      bg = Color.rgb(32, 41, 31);       // #20291f webpage surface
+      ink = Color.rgb(237, 242, 231);   // #edf2e7
+      green = Color.rgb(196, 217, 171); // #c4d9ab
+      pale = Color.rgb(45, 57, 42);     // #2d392a webpage message surface
+      mine = Color.rgb(66, 87, 51);     // #425733
+      muted = Color.rgb(176, 189, 171);// #b0bdab
+      line = Color.rgb(48, 61, 44);     // #303d2c
+      emptyMark = Color.rgb(146, 171, 124);
+      avatarInk = Color.rgb(39, 59, 32);
+      controlMuted = Color.rgb(135, 151, 128);
+    } else {
+      bg = Color.rgb(248, 250, 243);
+      ink = Color.rgb(37, 45, 37);
+      green = Color.rgb(82, 107, 64);
+      pale = Color.rgb(234, 240, 227);
+      mine = Color.rgb(215, 229, 188);
       muted = Color.rgb(112, 120, 109);
+      line = Color.rgb(230, 234, 224);
+      emptyMark = Color.rgb(183, 201, 165);
+      avatarInk = Color.rgb(52, 72, 46);
+      controlMuted = Color.rgb(174, 178, 174);
+    }
+  }
 
   private GradientDrawable messageShape(int color, boolean mine, boolean grouped, boolean groupEnd) {
     GradientDrawable d = new GradientDrawable();
@@ -240,6 +271,7 @@ public final class ChatFragment extends Fragment {
 
   @Override
   public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
+    applyPalette();
     root = new FrameLayout(getActivity());
     root.setBackgroundColor(bg);
     content = vertical();
@@ -297,7 +329,7 @@ public final class ChatFragment extends Fragment {
     header.addView(more, new LinearLayout.LayoutParams(dp(34), dp(42)));
     content.addView(header);
     View headerLine = new View(getActivity());
-    headerLine.setBackgroundColor(Color.rgb(230, 234, 224));
+    headerLine.setBackgroundColor(line);
     content.addView(headerLine, new LinearLayout.LayoutParams(-1, dp(1)));
     statusView = text(status, 12, muted);
     statusView.setGravity(Gravity.CENTER);
@@ -312,7 +344,7 @@ public final class ChatFragment extends Fragment {
     callPanel = vertical();
     callPanel.setVisibility(View.GONE);
     callPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
-    callPanel.setBackground(shape(Color.rgb(239, 244, 232), 18));
+    callPanel.setBackground(shape(pale, 18));
     callLabel = text("", 13, ink);
     callPanel.addView(callLabel);
     callVideoContainer = new LinearLayout(getActivity());
@@ -365,7 +397,7 @@ public final class ChatFragment extends Fragment {
     emptyState = vertical();
     emptyState.setGravity(Gravity.CENTER_HORIZONTAL);
     emptyState.setPadding(dp(12), Math.round(getResources().getDisplayMetrics().heightPixels * 0.13f), dp(12), 0);
-    TextView emptyMark = text("◌", 34, Color.rgb(183, 201, 165));
+    TextView emptyMark = text("◌", 34, this.emptyMark);
     emptyMark.setGravity(Gravity.CENTER);
     emptyMark.setBackground(shape(pale, 22));
     emptyMark.setContentDescription(null);
@@ -486,7 +518,7 @@ public final class ChatFragment extends Fragment {
     replyDraft = new LinearLayout(getActivity());
     replyDraft.setGravity(Gravity.CENTER_VERTICAL);
     replyDraft.setPadding(dp(14), dp(8), dp(8), dp(8));
-    replyDraft.setBackground(shape(Color.rgb(239, 244, 232), 18));
+    replyDraft.setBackground(shape(pale, 18));
     replyDraft.setVisibility(View.GONE);
     LinearLayout replyCopy = vertical();
     replyCopy.setPadding(dp(2), 0, dp(6), 0);
@@ -591,11 +623,13 @@ public final class ChatFragment extends Fragment {
     disconnect();
     cancelRecording();
     stopPlayer();
+    stopInlineVideo();
     super.onStop();
   }
 
   @Override
   public void onDestroyView() {
+    stopInlineVideo();
     clearRemoteRenderer();
     clearLocalRenderer();
     main.removeCallbacks(callClock);
@@ -653,6 +687,7 @@ public final class ChatFragment extends Fragment {
     inlineImagesLoading.clear();
     stopNativeCall();
     disconnect();
+    stopInlineVideo();
     net.close();
     io.shutdownNow();
     core.close();
@@ -706,7 +741,7 @@ public final class ChatFragment extends Fragment {
     }
     if (onlineDot != null) {
       boolean connected = s.startsWith("已连接");
-      onlineDot.setTextColor(connected ? Color.rgb(123, 150, 94) : Color.rgb(172, 178, 160));
+      onlineDot.setTextColor(connected ? green : muted);
       onlineDot.setContentDescription(connected ? "在线" : "连接中");
     }
   }
@@ -770,6 +805,12 @@ public final class ChatFragment extends Fragment {
   }
 
   private void error(Exception e) {
+    if (!inlineVideoLoadingId.isEmpty() && inlineVideoPlaceholder != null) {
+      inlineVideoPlaceholder.setVisibility(View.VISIBLE);
+      inlineVideoPlaceholder.setText("视频读取失败，轻触重试");
+      inlineVideoPlaceholder = null;
+    }
+    inlineVideoLoadingId = "";
     busy = false;
     historyBusy = false;
     if (send != null) send.setEnabled(true);
@@ -1574,6 +1615,7 @@ public final class ChatFragment extends Fragment {
       disconnect();
       cancelRecording();
       stopPlayer();
+      stopInlineVideo();
       generation++;
       callStateBusy = false;
       observedCall = null;
@@ -1917,10 +1959,11 @@ public final class ChatFragment extends Fragment {
   }
 
   private int avatarColor(String nickname) {
-    int[] colors = {
-      Color.rgb(184, 202, 167), Color.rgb(166, 193, 154), Color.rgb(200, 213, 187),
-      Color.rgb(180, 201, 179), Color.rgb(181, 199, 162), Color.rgb(191, 208, 184)
-    };
+    int[] colors = nightMode
+        ? new int[] {Color.rgb(126, 153, 107), Color.rgb(111, 142, 104), Color.rgb(149, 160, 116),
+            Color.rgb(111, 146, 132), Color.rgb(150, 151, 104), Color.rgb(130, 158, 139)}
+        : new int[] {Color.rgb(184, 202, 167), Color.rgb(166, 193, 154), Color.rgb(200, 213, 187),
+            Color.rgb(180, 201, 179), Color.rgb(181, 199, 162), Color.rgb(191, 208, 184)};
     String value = nickname == null || nickname.isEmpty() ? "?" : nickname;
     int hash = 0x811c9dc5;
     for (int i = 0; i < value.length(); ) {
@@ -1977,7 +2020,7 @@ public final class ChatFragment extends Fragment {
       messageRow.setGravity(Gravity.TOP);
       messageRow.setPadding(dp(mine ? 42 : 4), 0, dp(4), 0);
       if (!mine) {
-        TextView avatar = text(firstCodePoint(nick), 12, Color.rgb(52, 72, 46));
+        TextView avatar = text(firstCodePoint(nick), 12, avatarInk);
         avatar.setGravity(Gravity.CENTER);
         avatar.setContentDescription(nick);
         avatar.setBackground(shape(avatarColor(nick), 50));
@@ -1995,7 +2038,7 @@ public final class ChatFragment extends Fragment {
         name.setPadding(dp(12), 0, 0, dp(4));
         wrap.addView(name);
       }
-      TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd);
+      TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd, ChatFragment.this.mine, pale, ink, muted);
       bubble.setLineSpacing(dp(3), 1);
       bubble.setMaxWidth(Math.min(dp(580),
           Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 126))));
@@ -2053,8 +2096,8 @@ public final class ChatFragment extends Fragment {
         SeekBar seek = new SeekBar(getActivity());
         seek.setMax(0);
         seek.setContentDescription("语音播放进度");
-        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(174, 178, 174)));
-        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(174, 178, 174)));
+        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(controlMuted));
+        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(controlMuted));
         controls.addView(seek, new LinearLayout.LayoutParams(0, dp(38), 1));
         TextView volume = text("◖))", 14, ink);
         volume.setGravity(Gravity.CENTER);
@@ -2089,17 +2132,59 @@ public final class ChatFragment extends Fragment {
         card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
         card.setFocusable(true);
         bubbleView = card;
-      } else if (kind.equals("video") || kind.equals("file")) {
+      } else if (kind.equals("video")) {
+        LinearLayout card = vertical();
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setContentDescription(nick + "：视频，轻触预览播放");
+        LinearLayout infoRow = new LinearLayout(getActivity());
+        infoRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView glyph = text("▶", 18, green);
+        glyph.setGravity(Gravity.CENTER);
+        glyph.setBackground(shape(mine ? pale : ChatFragment.this.mine, 24));
+        infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout details = vertical();
+        details.setPadding(dp(10), 0, dp(4), 0);
+        int detailWidth = Math.min(dp(238), Math.max(dp(112),
+            getResources().getDisplayMetrics().widthPixels - dp(mine ? 180 : 220)));
+        TextView name = text(m.optString("filename", "视频"), 13, ink);
+        name.setMaxWidth(detailWidth);
+        name.setMaxLines(2);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        details.addView(name);
+        String detail = android.text.format.Formatter.formatShortFileSize(getActivity(), m.optLong("size"));
+        if (m.optDouble("duration", 0) > 0) detail += "  ·  " + Math.round(m.optDouble("duration")) + " 秒";
+        details.addView(text(detail + "  ·  轻触播放", 10, muted));
+        infoRow.addView(details, new LinearLayout.LayoutParams(detailWidth, -2));
+        Button fullscreen = button("全屏", () -> openMedia(m));
+        fullscreen.setTextSize(12);
+        fullscreen.setContentDescription("全屏播放视频：" + m.optString("filename", "视频"));
+        infoRow.addView(fullscreen, new LinearLayout.LayoutParams(dp(58), dp(38)));
+        card.addView(infoRow);
+
+        FrameLayout preview = new FrameLayout(getActivity());
+        preview.setBackground(shape(nightMode ? Color.rgb(20, 25, 20) : Color.rgb(224, 230, 218), 12));
+        TextView play = text("▶  轻触播放", 14, ink);
+        play.setGravity(Gravity.CENTER);
+        preview.addView(play, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
+            Math.min(dp(320), getResources().getDisplayMetrics().widthPixels - dp(72)), dp(180));
+        previewParams.topMargin = dp(9);
+        card.addView(preview, previewParams);
+        preview.setOnClickListener(v -> playInlineVideo(m, preview, play));
+        card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
+        card.setFocusable(true);
+        bubbleView = card;
+      } else if (kind.equals("file")) {
         LinearLayout card = new LinearLayout(getActivity());
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(13), dp(10), dp(13), dp(10));
         card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
-        String kindName = kind.equals("video") ? "视频" : "文件";
-        card.setContentDescription(nick + "：" + kindName + "，" + (kind.equals("file") ? "轻触保存" : "轻触播放"));
+        card.setContentDescription(nick + "：文件，轻触保存");
         LinearLayout infoRow = new LinearLayout(getActivity());
         infoRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView glyph = text(kind.equals("video") ? "▶" : "▤", 20, green);
+        TextView glyph = text("▤", 20, green);
         glyph.setGravity(Gravity.CENTER);
         glyph.setBackground(shape(mine ? pale : ChatFragment.this.mine, 24));
         infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
@@ -2107,25 +2192,19 @@ public final class ChatFragment extends Fragment {
         details.setPadding(dp(10), 0, dp(4), 0);
         int detailWidth = Math.min(dp(220), Math.max(dp(96),
             getResources().getDisplayMetrics().widthPixels - dp(mine ? 194 : 238)));
-        TextView name = text(m.optString("filename", "媒体文件"), 13, ink);
+        TextView name = text(m.optString("filename", "文件"), 13, ink);
         name.setMaxWidth(detailWidth);
         name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         details.addView(name);
         String detail = android.text.format.Formatter.formatShortFileSize(getActivity(), m.optLong("size"));
-        if (m.optDouble("duration", 0) > 0) detail += "  ·  " + Math.round(m.optDouble("duration")) + " 秒";
-        TextView meta = text(detail + (kind.equals("file") ? "  ·  点击保存" : "  ·  点击播放"), 10, muted);
-        details.addView(meta);
+        details.addView(text(detail + "  ·  点击保存", 10, muted));
         infoRow.addView(details, new LinearLayout.LayoutParams(detailWidth, -2));
-        if (kind.equals("file")) {
-          card.addView(infoRow, new LinearLayout.LayoutParams(0, -2, 1f));
-          Button save = button("保存", () -> openMedia(m));
-          save.setTextSize(12);
-          save.setContentDescription("保存文件：" + m.optString("filename", "文件"));
-          card.addView(save, new LinearLayout.LayoutParams(dp(62), dp(38)));
-        } else {
-          card.addView(infoRow);
-        }
+        card.addView(infoRow, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button save = button("保存", () -> openMedia(m));
+        save.setTextSize(12);
+        save.setContentDescription("保存文件：" + m.optString("filename", "文件"));
+        card.addView(save, new LinearLayout.LayoutParams(dp(62), dp(38)));
         card.setOnClickListener(v -> openMedia(m));
         card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
         card.setFocusable(true);
@@ -2725,7 +2804,112 @@ public final class ChatFragment extends Fragment {
     }
   }
 
+  private void playInlineVideo(JSONObject message, FrameLayout preview, TextView placeholder) {
+    if (!isAdded() || !started) return;
+    String messageId = message.optString("id");
+    if (!inlineVideoLoadingId.isEmpty()) return;
+    if (activeInlineVideo != null && activeInlineVideo.getParent() == preview) {
+      if (activeInlineVideo.isPlaying()) activeInlineVideo.pause();
+      else activeInlineVideo.start();
+      return;
+    }
+    stopInlineVideo();
+    inlineVideoLoadingId = messageId;
+    int videoGeneration = ++inlineVideoGeneration;
+    inlineVideoPlaceholder = placeholder;
+    placeholder.setText("正在读取视频…");
+    String path = endpoint("download/") + messageId;
+    int requestGeneration = generation;
+    setStatus("正在读取视频…");
+    scoped(
+        () -> net.download(path,
+            Math.min(100L * 1024 * 1024, Math.max(1, message.optLong("size"))) + 1024),
+        value -> {
+          File file = (File) value;
+          if (videoGeneration != inlineVideoGeneration || requestGeneration != generation
+              || !started || !isAdded() || !preview.isAttachedToWindow()) {
+            file.delete();
+            if (videoGeneration == inlineVideoGeneration) {
+              inlineVideoLoadingId = "";
+              placeholder.setText("视频未能打开，轻触重试");
+            }
+            return;
+          }
+          inlineVideoLoadingId = "";
+          VideoView video = new VideoView(getActivity());
+          video.setBackgroundColor(Color.BLACK);
+          MediaController controls = new MediaController(getActivity());
+          video.setMediaController(controls);
+          video.setVideoURI(Uri.fromFile(file));
+          FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -1);
+          preview.addView(video, params);
+          activeInlineVideo = video;
+          activeInlineVideoFile = file;
+          placeholder.setVisibility(View.GONE);
+          preview.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) {}
+            @Override public void onViewDetachedFromWindow(View view) {
+              if (activeInlineVideo == video) {
+                placeholder.setVisibility(View.VISIBLE);
+                placeholder.setText("轻触播放");
+                stopInlineVideo();
+              }
+            }
+          });
+          video.setOnPreparedListener(player -> {
+            if (video != activeInlineVideo) return;
+            player.setOnVideoSizeChangedListener((mp, width, height) -> {
+              if (width > 0 && height > 0 && video.getParent() == preview) {
+                float aspect = (float) width / height;
+                int maxWidth = Math.max(dp(120), Math.min(dp(320),
+                    getResources().getDisplayMetrics().widthPixels - dp(72)));
+                int maxHeight = dp(220);
+                int w = maxWidth, h = Math.round(w / aspect);
+                if (h > maxHeight) { h = maxHeight; w = Math.round(h * aspect); }
+                FrameLayout.LayoutParams resized = new FrameLayout.LayoutParams(w, h, Gravity.CENTER);
+                video.setLayoutParams(resized);
+                preview.getLayoutParams().height = h;
+                preview.requestLayout();
+              }
+            });
+            video.start();
+            setStatus("视频正在播放");
+          });
+          video.setOnCompletionListener(mp -> setStatus("视频播放结束"));
+          video.setOnErrorListener((mp, what, extra) -> {
+            if (video == activeInlineVideo) {
+              stopInlineVideo();
+              placeholder.setText("此视频编码暂不支持，可用全屏或保存后播放");
+              setStatus("视频无法播放");
+            }
+            return true;
+          });
+        });
+  }
+
+  private void stopInlineVideo() {
+    inlineVideoGeneration++;
+    inlineVideoLoadingId = "";
+    VideoView video = activeInlineVideo;
+    File file = activeInlineVideoFile;
+    TextView placeholder = inlineVideoPlaceholder;
+    activeInlineVideo = null;
+    activeInlineVideoFile = null;
+    inlineVideoPlaceholder = null;
+    if (placeholder != null) {
+      placeholder.setVisibility(View.VISIBLE);
+      placeholder.setText("▶  轻触播放");
+    }
+    if (video != null) {
+      try { video.stopPlayback(); } catch (RuntimeException ignored) {}
+      ViewGroup parent = (ViewGroup) video.getParent();
+      if (parent != null) parent.removeView(video);
+    }
+    if (file != null && file.exists()) file.delete();
+  }
+
   private void openMedia(JSONObject m) {
+    if (m.optString("kind").equals("video")) stopInlineVideo();
     String path = endpoint("download/") + m.optString("id");
     int g = generation;
     setStatus("正在读取媒体…");

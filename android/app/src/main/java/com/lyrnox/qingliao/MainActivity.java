@@ -12,8 +12,21 @@ public final class MainActivity extends Activity {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
-    getWindow().setStatusBarColor(Color.rgb(250, 251, 247));
-    getWindow().setNavigationBarColor(Color.rgb(250, 251, 247));
+    boolean night = (getResources().getConfiguration().uiMode
+        & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+        == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    int bar = night ? Color.rgb(32, 41, 31) : Color.rgb(250, 251, 247);
+    getWindow().setStatusBarColor(bar);
+    getWindow().setNavigationBarColor(bar);
+    if (Build.VERSION.SDK_INT >= 23) {
+      int flags = getWindow().getDecorView().getSystemUiVisibility();
+      flags = night ? flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+          : flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+      if (Build.VERSION.SDK_INT >= 26) flags = night
+          ? flags & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+          : flags | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+      getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
     android.widget.FrameLayout content = new android.widget.FrameLayout(this);
     content.setId(CONTENT);
     if (Build.VERSION.SDK_INT >= 30) {

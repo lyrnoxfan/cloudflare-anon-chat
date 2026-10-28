@@ -12,15 +12,16 @@ final class MessageBubbleView extends TextView {
   private final float radius;
   private final boolean mine, grouped, groupEnd;
 
-  MessageBubbleView(Context context, boolean mine, boolean deleted, boolean grouped, boolean groupEnd) {
+  MessageBubbleView(Context context, boolean mine, boolean deleted, boolean grouped, boolean groupEnd,
+      int mineColor, int otherColor, int textColor, int mutedColor) {
     super(context);
     this.mine = mine;
     this.grouped = grouped;
     this.groupEnd = groupEnd;
     float density = getResources().getDisplayMetrics().density;
     radius = 21 * density;
-    paint.setColor(mine ? Color.rgb(215, 229, 188) : Color.rgb(234, 240, 227));
-    setTextColor(deleted ? Color.rgb(112, 120, 109) : Color.rgb(37, 45, 37));
+    paint.setColor(mine ? mineColor : otherColor);
+    setTextColor(deleted ? mutedColor : textColor);
     setTextSize(16);
     setPadding(
         Math.round(15 * density),

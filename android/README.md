@@ -1,43 +1,42 @@
-# 轻聊 Android 0.1.6
+# 轻聊 Android 0.2.4
 
-现有 Cloudflare 聊天室的独立原生 Android 客户端。基于 Android 0.1.5（应用功能提交 `1b705d1`，其后文档提交 `d9899dc`）核对的实际 API 实现；加入原生 WebRTC 发布与订阅实验路径。未改网站、Worker、D1、R2、域名或线上配置。不是 WebView 包壳，不内嵌网页。
+轻聊的原生 Android 客户端，直接调用仓库中的 Cloudflare 聊天服务；不是 WebView 包壳。此版在网页已有聊天行为上补齐系统深色配色和聊天消息内的视频播放器，并保留 Android 原生导航、输入、媒体权限和系统文件流。它不声称与网页逐像素一致，完整对照和未验收项见 [G29 parity / validation](G29-PARITY.md)。
 
 ## 架构
 
-- 单 `MainActivity`，自定义 `ChatFragment` 管理前台生命周期；布局由 Java 动态组装，无 XML layout。`MessageBubbleView` 在 Canvas 绘制胶囊气泡，文字与辅助功能沿用原生 TextView。
-- C++17 `Engine` 负责协议 JSON、消息索引/去重/稳定排序、删除墓碑（拒绝旧历史复活）、在线成员、输入/上传限制、UTF-16 长度边界、退避重连策略，并负责生成 `/api/session` 请求、校验会话响应和纯文本发送响应（状态码、服务端消息对象、client_id/正文一致性、消息类型/作者/时间），把已确认发送的消息并入原生状态。实时消息和历史也由核心解析合并。会话态决定原生聊天内容与无障碍树是否开放。不是仅供演示的空 JNI。
-- JNI 仅传递不透明句柄和有上限的 JSON 字符串，显式严格转换 UTF-8/UTF-16，RAII 管理核心，Java/C++ 两侧串行化访问，异常转换为受控错误。没有裸指针暴露给 UI。
-- Java/OkHttp 负责 Android TLS、Cookie、WebSocket、异步 I/O、系统文件选择、Keystore、Android 权限和 WebRTC SDK 调用。C++ Engine 还维护通话信令阶段并校验 SFU 发布/订阅响应；“answer 已由 HTTP 接受”不代表 ICE/媒体已经连接。WebRTC 媒体栈由 `io.github.webrtc-sdk:android` 提供，未声称 C++ 自行实现媒体编解码或网络传输。没有为增加 C++ 比例而把 Android 权限/TLS 绕过到不安全的 native 网络层。
-- 前台心跳、断线退避、回前台补历史，房间代际检查阻止旧请求写进新房间。匿名 Cookie 以 Android Keystore AES-GCM 加密保存；关闭系统备份。消息/媒体仅位于进程内存与应用私有缓存，缓存文件不是端到端加密存储。
+- 单 `MainActivity`；`ChatFragment` 以 Java 动态创建 Android View，无 XML layout。`MessageBubbleView` 在 Canvas 绘制气泡；文本/辅助功能使用原生 View。
+- C++17 Engine/JNI 处理消息协议 JSON、身份与会话状态、消息索引/去重/稳定排序、删除墓碑、成员状态、输入/上传限制、退避重连、原生文本发送请求及响应校验。Java/OkHttp 负责 TLS、Cookie、WebSocket、异步 I/O、系统选择器和平台权限。C++ 并不实现 TLS、Android 权限或 WebRTC 媒体编解码。
+- WebRTC SDK 用于本机媒体采集与远端媒体轨显示；C++ 校验信令契约。服务端接受信令不代表 ICE 或音视频已连通。
+- 匿名 Cookie 以 Android Keystore AES-GCM 加密保存，系统备份关闭。消息仅留在内存并从服务端取回；媒体临时缓存位于应用私有目录，不是端到端加密存储。
 
-## 已编写的功能
+## 原生端目前实现
 
-昵称创建/修改、公共大厅、私房创建、房号/口令加入（支持单字符非空口令）、房间链接、在线成员、WebSocket 文本收发、历史分页、C++ 校验发送响应并合并至本地消息状态、文本幂等重试、长按复制/引用回复/删除、参考表情面板及正文图片表情、系统文件/图片/视频选择和上传、AAC/M4A 语音录制、授权下载、原生图片查看/音频视频播放与系统文件保存。
+- 昵称创建/修改、公共大厅、私房创建、按房号和口令加入、房间链接、在线成员、WebSocket 文本收发和历史分页。
+- 消息分组/日期分隔、引用回复、复制/删除自己的消息、表情、未读跳转、加载更早消息。
+- 图片上传、消息内缩略图/全屏预览；录音和音频进度播放；视频消息内播放及全屏播放；普通文件保存。下载走服务端授权路径，限制缓存大小并在播放器停止、切房或离开页面时清理临时视频。
+- 原生语音/视频呼叫、接听控件、摄像头/麦克风采集以及远端视频视图已实现代码路径，但是否能在设备和当前服务上完整工作，仍以 G29 逐项验收说明为准。
+- 页面依据 Android 系统深浅色模式使用对应的网页色板；用户仍可使用原生抽屉及布局，不是网页 DOM 的像素级复制。
 
-服务器仍是唯一授权来源：私房口令不写入持久存储；前端限制不替代服务器校验；客户端无法删除他人的消息。文件上传前有明确目标房间确认。
-
-原生音视频仍是实验功能：本机发布音频/可选视频轨后，会轮询已有通话状态，按服务端信令调用 `/call-subscribe`、建立远端 `PeerConnection` 并发 `/call-answer`；接收的音轨启用播放，视频轨交给原生 `SurfaceViewRenderer` 显示。结束、失败或离开页面时会清理采集器、轨道、PeerConnection、渲染器并尽力离开服务端会话。它目前没有来电/接听 UI，也没有真实双端、媒体连通或设备端验收；仅能说代码已实现并编译，不能声称完整通话有效。Android 9 x86_64 VPS 模拟器实际运行了 31 项离线 JNI instrumentation，但没有启动主应用（其启动会请求会话服务），也未访问任何线上服务。视频需要摄像头权限，音频需要麦克风权限；拒绝权限不会影响文字聊天。
+服务端仍是唯一授权来源：私房口令不写入持久存储；客户端限制不替代服务端校验；不能删除他人消息。上传前会确认目标房间。应用默认连接 `https://chat.lyrnox.com`；不会关联网页匿名身份，两边使用各自的匿名 Cookie。
 
 ## 安装与兼容
 
-- Android 8.0 / API 26 及以上；target/compile SDK 35。
-- APK 同时包含 `arm64-v8a` 和 `x86_64`。不包含 32 位 ARM/x86。
-- 交付的是标准 Android debug-key 签名测试包（可侧载），不是 Play 商店正式发布包。不要将 debug key 当成发布签名；正式发布需所有者提供/自行保管 release keystore。
-- 默认连到 `https://chat.lyrnox.com`。不会自动关联网页浏览器匿名身份；两边拥有不同匿名 Cookie，删除权也各自独立。
-- 录音或语音测试请求麦克风权限；视频通话测试还请求摄像头权限。文件通过 SAF 选择/保存，不请求全盘存储或通讯录权限。
+- Android 8.0 / API 26 及以上；compile/target SDK 35。
+- APK 包含 `arm64-v8a` 与 `x86_64`，不含 32 位 ABI。
+- Debug-key 测试签名包，可侧载；不是 Play 发布包。不能把 debug key 当正式签名。
+- 语音录制/通话需要麦克风权限；视频通话需摄像头权限。拒绝权限不影响文字聊天。文件选择与保存用系统 Storage Access Framework，不请求全盘存储权限。
 
-## 构建
+## 构建与测试命令
 
-需要 JDK 17、Android SDK platform 35 / build-tools 35.0.0、NDK 27.2.12479018、CMake 3.22.1，可由 Android Studio SDK Manager 安装；首次联网拉取 Gradle/AGP、OkHttp 和 WebRTC SDK。
+依赖 JDK 17、Android SDK platform/build-tools 35、NDK 27.2.12479018、CMake 3.22.1；首次联网解析 Gradle、OkHttp 与 WebRTC SDK 依赖。
 
 ```sh
 cd android
-# 配置 ANDROID_HOME，或自行创建 local.properties 的 sdk.dir（不提交）
-./gradlew assembleDebug lintDebug
-# app/build/outputs/apk/debug/app-debug.apk
+# 设置 ANDROID_HOME；按需创建不提交的 local.properties
+./gradlew assembleDebug assembleDebugAndroidTest lintDebug
 ```
 
-原生主机测试（不需要 Android SDK）：
+宿主 C++ 测试：
 
 ```sh
 cmake -S app/src/main/cpp -B .native-tests \
@@ -46,25 +45,10 @@ cmake --build .native-tests
 ctest --test-dir .native-tests --output-on-failure
 ```
 
-设备 JNI 测试（默认不联网）：
+默认 Android JNI instrumentation 不联网。若启用真实服务集成测试，需明确传 `-e network true`；它会在测试服务写入独立身份、房间和消息，不能用于生产环境。测试范围、证据和限制见 G29 文档。
 
-```sh
-./gradlew assembleDebug assembleDebugAndroidTest
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-adb shell am instrument -w com.lyrnox.qingliao.test/com.lyrnox.qingliao.NativeInstrumentation
-```
+## 边界
 
-显式开启真实测试站集成测试：给 instrument 增加 `-e network true`。它创建两个独立测试身份和一个全新私房，不读取既有私房、不操作他人消息；验证错误口令、WebSocket 收发、幂等、历史、删除同步与真实图片上传/授权下载字节比对。测试完成会删除测试身份自己的文本/图片；服务没有删房接口，测试私房及匿名记录会保留。不要在不允许写测试数据的服务上运行此模式。
-
-## 重要边界
-
-- 实验性实时音视频代码包含本地发布与远端订阅/接收，但来电/接听体验、ICE/媒体连通和真实双向通话尚未在设备或服务端验收；不能称为已验证的完整通话功能。
-- 没有后台服务/推送；退后台断开实时连接，回来补历史。不是始终在线客户端。
-- 没有消息数据库/离线发送队列；退出进程后重新取服务器历史。上传超时不自动重试，以免未知提交状态造成重复；请先看历史再决定是否重新发送。
-- 语音最长 2 分钟；媒体播放受系统编码器支持约束；不能保证所有 WebM/视频编码跨设备可播，可保存原文件。
-- 房间是服务端口令授权，不是端到端加密。清除应用数据会失去匿名身份和相应删除权。
-- 当前原生布局沿用暖白浅绿/圆润方向，空大厅增加了与网页一致的安静提示；但不是网站逐像素复刻，头像/连续消息分组、深色主题仍未实现。没有伪造头像或在线人数。
-- 表情图片沿用仓库 `public/emoji-ref`；公开分发前应确认原始素材许可。依赖许可见 THIRD_PARTY.md。
-
-Android 9 x86_64 模拟器上已运行上述默认离线 JNI instrumentation；实际执行结果与未验证范围见 VALIDATION.md。没有运行真实网络测试或启动主应用；构建成功不等于真机、UI 或通话验收。
+- 媒体解码依设备支持；编码不支持时可保存源文件。Android 端先安全取得授权媒体再在本机解码，尚未验证与网页浏览器的视频播放在流式/弱网/编码边界上的等价性。
+- 无后台推送、离线数据库或离线发送队列；应用离开前台后断开实时连接，返回时补取历史。
+- 没有 32 位 ABI。公开视频素材许可仍须在公开分发前核实，见 [THIRD_PARTY.md](THIRD_PARTY.md)。
