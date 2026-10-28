@@ -468,9 +468,23 @@ public final class ChatFragment extends Fragment {
 
   private void updateSessionGate() {
     if (sessionGate == null || list == null) return;
-    boolean show = sessionExpired && session == null;
+    boolean show;
+    boolean showContent;
+    try {
+      JSONObject screen = core.run("gate", "expired", sessionExpired, "hasSession", session != null);
+      show = screen.getBoolean("show");
+      showContent = screen.getBoolean("contentVisible");
+    } catch (Exception ignored) {
+      show = sessionExpired && session == null;
+      showContent = !show;
+    }
+    if (content != null) {
+      content.setVisibility(showContent ? View.VISIBLE : View.GONE);
+      content.setImportantForAccessibility(
+          showContent ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+    }
     if (sessionOverlay != null) sessionOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
-    if (older != null && show) older.setVisibility(View.GONE);
+    if (older != null) older.setVisibility(show || next == null ? View.GONE : View.VISIBLE);
   }
 
   private void showSessionGate() {

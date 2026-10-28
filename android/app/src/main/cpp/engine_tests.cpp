@@ -4,6 +4,9 @@
 #include <iostream>
 using ql::J;
 int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"failed assertion "<<checks+1<<"\n";std::exit(1);}checks++;};auto rejects=[&](J j){try{e.command(j);return false;}catch(...){return true;}};
+ auto gate=e.command({{"op","gate"},{"expired",true},{"hasSession",false}});check(gate["show"]==true&&gate["contentVisible"]==false);
+ auto active=e.command({{"op","gate"},{"expired",false},{"hasSession",true}});check(active["show"]==false&&active["contentVisible"]==true);
+ auto restored=e.command({{"op","gate"},{"expired",true},{"hasSession",true}});check(restored["show"]==false&&restored["contentVisible"]==true);
  check(e.command({{"op","reset"},{"room","lobby"}})["room"]=="lobby");
  check(rejects({{"op","reset"},{"room","../bad"}}));check(rejects({{"op","reset"},{"room","房间"}}));
  check(e.command({{"op","join"},{"password","a"}})["password"]=="a");check(rejects({{"op","join"},{"password"," "}}));

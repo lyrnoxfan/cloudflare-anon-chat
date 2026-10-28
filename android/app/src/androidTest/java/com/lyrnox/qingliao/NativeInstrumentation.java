@@ -26,6 +26,12 @@ public final class NativeInstrumentation extends Instrumentation {
     Bundle result = new Bundle();
     try (NativeCore core = new NativeCore()) {
       check(core.run("reset", "room", "lobby").getString("room").equals("lobby"), "reset");
+      JSONObject expiredGate = core.run("gate", "expired", true, "hasSession", false);
+      check(expiredGate.getBoolean("show") && !expiredGate.getBoolean("contentVisible"), "expired gate hides chat");
+      JSONObject activeGate = core.run("gate", "expired", false, "hasSession", true);
+      check(!activeGate.getBoolean("show") && activeGate.getBoolean("contentVisible"), "active session restores chat");
+      JSONObject recoveredGate = core.run("gate", "expired", true, "hasSession", true);
+      check(!recoveredGate.getBoolean("show") && recoveredGate.getBoolean("contentVisible"), "session takes precedence");
       check(
           core.run("session", "nickname", "你好😀").getString("nickname").equals("你好😀"),
           "JNI Unicode");
