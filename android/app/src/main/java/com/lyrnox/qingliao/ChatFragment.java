@@ -1077,24 +1077,19 @@ public final class ChatFragment extends Fragment {
         pendingText = raw;
         pendingId = UUID.randomUUID().toString();
       }
-      JSONObject payload = core.run("send", "text", raw, "clientId", pendingId);
       String path = endpoint("send");
       int g = generation;
+      String sentRoom = room;
+      String sentClientId = pendingId;
       busy = true;
       send.setEnabled(false);
       setStatus("正在发送…");
       task(
-          () -> net.api(path, payload),
+          () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path, sentRoom, raw, sentClientId),
           value -> {
             busy = false;
             if (send != null) send.setEnabled(true);
             if (g != generation) return;
-            core.run(
-                "event",
-                "event",
-                new JSONObject()
-                    .put("type", "message")
-                    .put("message", ((JSONObject) value).getJSONObject("message")));
             if (input != null && input.getText().toString().equals(raw)) input.setText("");
             pendingId = "";
             pendingText = "";

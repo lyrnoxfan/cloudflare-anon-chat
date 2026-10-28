@@ -110,6 +110,70 @@ public final class NativeInstrumentation extends Instrumentation {
         mockUnauthorized = true;
       }
       check(mockUnauthorized && core.run("session_state").getBoolean("showGate"), "mock 401 keeps nickname gate visible");
+      core.run("reset", "room", "lobby");
+      JSONObject sent =
+          MessageProtocol.send(
+              core,
+              (path, body) -> {
+                check("/api/r/lobby/send".equals(path), "message mock receives actual send contract");
+                check("hello Android".equals(body.getString("text")), "message payload is native-normalized");
+                check("mock-client-1".equals(body.getString("clientId")), "client id preserved for idempotency");
+                JSONObject message = new JSONObject()
+                    .put("id", "server-message-1")
+                    .put("nickname", "Mock guest")
+                    .put("client_id", "mock-client-1")
+                    .put("kind", "text")
+                    .put("text", "hello Android")
+                    .put("created", 1700000000000L)
+                    .put("mine", true)
+                    .put("deleted", 0);
+                return new SessionProtocol.HttpResponse(200, new JSONObject().put("message", message).toString());
+              },
+              "/api/r/lobby/send",
+              "lobby",
+              " hello Android ",
+              "mock-client-1");
+      check("server-message-1".equals(sent.getString("id")), "mock send response accepted by C++ core");
+      check(core.run("snapshot").getJSONArray("messages").length() == 1, "send response immediately updates native message state");
+      JSONObject incoming = new JSONObject()
+          .put("id", "server-message-2")
+          .put("nickname", "Other guest")
+          .put("client_id", "other-client")
+          .put("kind", "text")
+          .put("text", "received over realtime event")
+          .put("created", 1700000000001L)
+          .put("mine", false)
+          .put("deleted", 0);
+      core.run("event", "event", new JSONObject().put("type", "message").put("message", incoming));
+      check(core.run("snapshot").getJSONArray("messages").length() == 2, "realtime receive merges into native message state");
+      boolean sendUnauthorized = false;
+      try {
+        MessageProtocol.send(
+            core,
+            (path, body) -> new SessionProtocol.HttpResponse(401, "{\"error\":\"请先输入昵称\"}"),
+            "/api/r/lobby/send",
+            "lobby",
+            "will not be stored",
+            "mock-client-2");
+      } catch (ChatNet.ApiError expected) {
+        sendUnauthorized = expected.status == 401;
+      }
+      check(sendUnauthorized, "mock 401 is surfaced as API failure");
+      check(core.run("snapshot").getJSONArray("messages").length() == 2, "failed send does not mutate message state");
+      boolean malformedResponse = false;
+      try {
+        MessageProtocol.send(
+            core,
+            (path, body) -> new SessionProtocol.HttpResponse(200, "{\"message\":{}}"),
+            "/api/r/lobby/send",
+            "lobby",
+            "bad response",
+            "mock-client-3");
+      } catch (Exception expected) {
+        malformedResponse = true;
+      }
+      check(malformedResponse && core.run("snapshot").getJSONArray("messages").length() == 2, "malformed 200 response is rejected without state change");
+      core.run("reset", "room", "lobby");
       JSONArray list =
           new JSONArray()
               .put(

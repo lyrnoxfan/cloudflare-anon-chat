@@ -138,6 +138,27 @@ final class ChatNet implements Closeable {
     }
   }
 
+  SessionProtocol.HttpResponse messagePost(String path, JSONObject body) throws Exception {
+    if (path == null || !path.matches("/api/r/[A-Za-z0-9-]{1,80}/send")
+        || body == null || body.length() != 2 || !body.has("text") || !body.has("clientId")
+        || body.optString("text").isEmpty() || body.optString("text").length() > 4000
+        || body.optString("clientId").isEmpty() || body.optString("clientId").length() > 80)
+      throw new IOException("消息请求格式异常");
+    Request request =
+        new Request.Builder()
+            .url(BASE + path)
+            .header("Origin", BASE)
+            .post(RequestBody.create(body.toString(), JSON))
+            .build();
+    try (Response response = client.newCall(request).execute()) {
+      ResponseBody responseBody = response.body();
+      if (responseBody == null) throw new IOException("服务器没有返回内容");
+      String raw = responseBody.string();
+      if (raw.length() > 65536) throw new IOException("消息响应过大");
+      return new SessionProtocol.HttpResponse(response.code(), raw);
+    }
+  }
+
   JSONObject api(String path, JSONObject body) throws Exception {
     if (!path.startsWith("/api/")) throw new IOException("接口路径无效");
     Request.Builder b = new Request.Builder().url(BASE + path).header("Origin", BASE);

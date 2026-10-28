@@ -52,6 +52,25 @@ J Engine::command(const J& in){auto op=in.at("op").get<std::string>();
  if(op=="room")return {{"name",validText(in.at("name"),80)},{"password",validText(in.at("password"),128)}};
  if(op=="join")return {{"password",validText(in.at("password"),128)}};
  if(op=="send")return {{"text",validText(in.at("text"),4000)},{"clientId",validText(in.at("clientId"),80)}};
+ if(op=="send_response"){
+  auto status=in.at("status");if(!status.is_number_integer())throw std::runtime_error("消息响应状态异常");int code=status.get<int>();
+  auto raw=in.at("body");if(!raw.is_string())throw std::runtime_error("消息响应格式异常");auto body=raw.get<std::string>();if(body.size()>65536)throw std::runtime_error("消息响应过大");
+  J response;try{response=J::parse(body);}catch(...){throw std::runtime_error("消息响应格式异常");}
+  if(code!=200){std::string message="发送失败（"+std::to_string(code)+"）";if(response.is_object()&&response.contains("error")&&response["error"].is_string()){auto detail=response["error"].get<std::string>();if(detail.size()>256)detail.resize(256);if(!detail.empty())message=detail;}throw std::runtime_error(message);}
+  if(!response.is_object()||!response.contains("message")||!response["message"].is_object())throw std::runtime_error("消息响应格式异常");
+  const auto& m=response["message"];
+  auto expectedClient=validText(in.at("clientId"),80);auto expectedText=validText(in.at("text"),4000);
+  if(!in.contains("room")||!in["room"].is_string()||in["room"].get<std::string>()!=room)throw std::runtime_error("房间已切换");
+  if(!m.contains("id")||!m["id"].is_string()||m["id"].get<std::string>().empty()||m["id"].get<std::string>().size()>80)throw std::runtime_error("消息标识异常");
+  if(!m.contains("nickname")||!m["nickname"].is_string()||validText(m["nickname"],32)!=m["nickname"].get<std::string>())throw std::runtime_error("昵称格式异常");
+  if(!m.contains("client_id")||!m["client_id"].is_string()||m["client_id"].get<std::string>()!=expectedClient)throw std::runtime_error("消息标识不匹配");
+  if(!m.contains("kind")||!m["kind"].is_string()||m["kind"]!="text")throw std::runtime_error("消息类型异常");
+  if(!m.contains("text")||!m["text"].is_string()||m["text"].get<std::string>()!=expectedText)throw std::runtime_error("消息内容不匹配");
+  if(!m.contains("created")||!m["created"].is_number_integer()||m["created"].get<int64_t>()<=0)throw std::runtime_error("消息时间异常");
+  if(!m.contains("mine")||!m["mine"].is_boolean()||!m["mine"].get<bool>())throw std::runtime_error("发送结果归属异常");
+  if(m.contains("deleted")&&(!m["deleted"].is_number_integer()||m["deleted"].get<int>()!=0))throw std::runtime_error("消息状态异常");
+  merge(m);return {{"message",m},{"count",messages.size()}};
+ }
  if(op=="upload"){auto size=in.at("size").get<int64_t>();auto mime=validText(in.at("mime"),100);auto kind=std::string("file");if(mime=="image/png"||mime=="image/jpeg"||mime=="image/webp"||mime=="image/gif")kind="image";else if(mime=="video/mp4"||mime=="video/webm"||mime=="video/quicktime")kind="video";else if(in.value("voice",false)){if(mime!="audio/mp4")throw std::runtime_error("录音类型异常");kind="audio";}int64_t cap=(kind=="video"?100:kind=="file"?50:10)*1024LL*1024LL;if(size<=0||size>cap)throw std::runtime_error("文件为空或超过大小限制");return {{"size",size},{"mime",mime},{"kind",kind},{"filename",validText(in.at("filename"),180)},{"clientId",validText(in.at("clientId"),80)},{"duration",in.value("duration",0.0)}};}
  if(op=="history"){for(auto& m:in.at("messages"))merge(m);return {{"count",messages.size()}};}
  if(op=="event"){const auto& e=in.at("event");auto type=e.value("type","");if(type=="message")merge(e.at("message"));else if(type=="deleted"){auto id=e.at("id").get<std::string>();deleted.insert(id);if(messages.count(id)){messages[id]["deleted"]=1;messages[id]["text"]=nullptr;}}else if(type=="presence")members=e.at("members");return {{"type",type}};}
