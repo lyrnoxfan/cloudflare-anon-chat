@@ -122,6 +122,22 @@ final class ChatNet implements Closeable {
     }
   }
 
+  SessionProtocol.HttpResponse sessionPost(String path, JSONObject body) throws Exception {
+    if (!"/api/session".equals(path) || body == null || !body.has("nickname"))
+      throw new IOException("会话请求格式异常");
+    Request request =
+        new Request.Builder()
+            .url(BASE + path)
+            .header("Origin", BASE)
+            .post(RequestBody.create(body.toString(), JSON))
+            .build();
+    try (Response response = client.newCall(request).execute()) {
+      ResponseBody responseBody = response.body();
+      if (responseBody == null) throw new IOException("服务器没有返回内容");
+      return new SessionProtocol.HttpResponse(response.code(), responseBody.string());
+    }
+  }
+
   JSONObject api(String path, JSONObject body) throws Exception {
     if (!path.startsWith("/api/")) throw new IOException("接口路径无效");
     Request.Builder b = new Request.Builder().url(BASE + path).header("Origin", BASE);

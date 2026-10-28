@@ -16,6 +16,14 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  auto sessionGate=e.command({{"op","session_state"}});check(sessionGate["active"]&& !sessionGate["showGate"]&&sessionGate["contentVisible"]);
  J malformedSession={{"id","not-a-uuid"},{"nickname","bad"},{"expires",200000}};check(rejects({{"op","session_accept"},{"session",malformedSession},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="active");
  e.command({{"op","session_required"}});check(e.command({{"op","session_state"}})["phase"]=="required");
+ auto sessionRequest=e.command({{"op","session_request"},{"nickname"," Mock guest "}});check(sessionRequest["method"]=="POST"&&sessionRequest["path"]=="/api/session"&&sessionRequest["body"]["nickname"]=="Mock guest");check(e.command({{"op","session_state"}})["phase"]=="creating"&&e.command({{"op","session_state"}})["showGate"]);
+ check(rejects({{"op","session_response"},{"status",401},{"body","{\"error\":\"请先输入昵称\"}"},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="required");
+ auto retryRequest=e.command({{"op","session_request"},{"nickname"," Mock guest "}});check(retryRequest["body"]["nickname"]=="Mock guest");
+ J sessionBody={{"id","123e4567-e89b-12d3-a456-426614174000"},{"nickname"," Mock guest "},{"expires",200000},{"limits",{{"nickname",32},{"sessionMs",604800000},{"text",4000},{"roomName",80},{"passwordMin",1},{"passwordMax",128},{"image",10485760},{"audio",10485760},{"video",104857600},{"file",52428800},{"members",8},{"grantMs",7200000},{"uploadMs",120000},{"callLeaseMs",45000}}},{"sfu",false}};
+ auto responseAccepted=e.command({{"op","session_response"},{"status",200},{"body",sessionBody.dump()},{"now",100000}});check(responseAccepted["session"]["nickname"]=="Mock guest"&&responseAccepted["session"]["limits"]["nickname"]==32&&responseAccepted["session"]["sfu"]==false);check(e.command({{"op","session_state"}})["phase"]=="active");
+ e.command({{"op","session_request"},{"nickname","Updated"}});check(e.command({{"op","session_state"}})["contentVisible"]);check(rejects({{"op","session_response"},{"status",429},{"body","{\"error\":\"操作过于频繁\"}"},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="active");
+ e.command({{"op","session_request"},{"nickname","Updated"}});check(rejects({{"op","session_response"},{"status",200},{"body","{\"id\":\"bad\"}"},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="active");
+ e.command({{"op","session_required"}});e.command({{"op","session_request"},{"nickname","Retry"}});e.command({{"op","session_failed"}});check(e.command({{"op","session_state"}})["phase"]=="required");
  check(e.command({{"op","reset"},{"room","lobby"}})["room"]=="lobby");
  check(rejects({{"op","reset"},{"room","../bad"}}));check(rejects({{"op","reset"},{"room","房间"}}));
  check(e.command({{"op","join"},{"password","a"}})["password"]=="a");check(rejects({{"op","join"},{"password"," "}}));

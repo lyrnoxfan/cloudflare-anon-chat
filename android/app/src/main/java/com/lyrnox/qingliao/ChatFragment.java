@@ -524,31 +524,25 @@ public final class ChatFragment extends Fragment {
 
   private void submitGateNickname() {
     if (session == null && gateName != null && gateEnter != null) {
-      try {
-        JSONObject payload = core.run("session", "nickname", gateName.getText().toString());
-        gateEnter.setEnabled(false);
-        setStatus("正在进入轻聊…");
-        task(
-            () -> net.api("/api/session", payload),
-            value -> {
-              acceptSession((JSONObject) value);
-              if (getActivity() != null)
-                getActivity().getPreferences(0).edit().putString("nickname", nickname).apply();
-              sessionExpired = false;
-              updateSessionGate();
-              if (gateEnter != null) gateEnter.setEnabled(true);
-              if (pendingLink != null) {
-                String rid = pendingLink;
-                pendingLink = null;
-                joinDialog(rid);
-              } else enter();
-            });
-      } catch (Exception e) {
-        if (gateError != null) {
-          gateError.setText(e.getMessage());
-          gateError.setVisibility(View.VISIBLE);
-        } else toast(e.getMessage());
-      }
+      String requestedNickname = gateName.getText().toString();
+      gateEnter.setEnabled(false);
+      setStatus("正在进入轻聊…");
+      task(
+          () -> SessionProtocol.create(core, (path, body) -> net.sessionPost(path, body), requestedNickname),
+          value -> {
+            JSONObject accepted = (JSONObject) value;
+            applyAcceptedSession(accepted.getJSONObject("session"));
+            if (getActivity() != null)
+              getActivity().getPreferences(0).edit().putString("nickname", nickname).apply();
+            sessionExpired = false;
+            updateSessionGate();
+            if (gateEnter != null) gateEnter.setEnabled(true);
+            if (pendingLink != null) {
+              String rid = pendingLink;
+              pendingLink = null;
+              joinDialog(rid);
+            } else enter();
+          });
     }
   }
 
@@ -587,10 +581,12 @@ public final class ChatFragment extends Fragment {
 
   private void acceptSession(JSONObject response) throws Exception {
     JSONObject accepted = core.run("session_accept", "session", response, "now", System.currentTimeMillis());
-    JSONObject normalized = new JSONObject(response.toString());
-    normalized.put("nickname", accepted.getString("nickname"));
-    session = normalized;
-    nickname = accepted.getString("nickname");
+    applyAcceptedSession(accepted.getJSONObject("session"));
+  }
+
+  private void applyAcceptedSession(JSONObject acceptedSession) throws Exception {
+    session = new JSONObject(acceptedSession.toString());
+    nickname = acceptedSession.getString("nickname");
     sessionExpired = false;
     updateSessionGate();
   }
@@ -636,37 +632,42 @@ public final class ChatFragment extends Fragment {
             d.getButton(-1)
                 .setOnClickListener(
                     v -> {
-                      try {
-                        JSONObject payload =
-                            core.run("session", "nickname", name.getText().toString());
-                        d.getButton(-1).setEnabled(false);
-                        task(
-                            () -> {
-                              try {
-                                return net.api("/api/session", payload);
-                              } catch (Exception e) {
-                                main.post(() -> d.getButton(-1).setEnabled(true));
-                                throw e;
-                              }
-                            },
-                            value -> {
-                              acceptSession((JSONObject) value);
-                              if (getActivity() != null)
-                                getActivity()
-                                    .getPreferences(0)
-                                    .edit()
-                                    .putString("nickname", nickname)
-                                    .apply();
-                              d.dismiss();
-                              if (pendingLink != null) {
-                                String rid = pendingLink;
-                                pendingLink = null;
-                                joinDialog(rid);
-                              } else enter();
-                            });
-                      } catch (Exception e) {
-                        name.setError(e.getMessage());
-                      }
+                      String requestedNickname = name.getText().toString();
+                      d.getButton(-1).setEnabled(false);
+                      task(
+                          () -> {
+                            try {
+                              return SessionProtocol.create(
+                                  core,
+                                  (path, body) -> net.sessionPost(path, body),
+                                  requestedNickname);
+                            } catch (Exception failure) {
+                              main.post(
+                                  () -> {
+                                    if (d.isShowing()) {
+                                      d.getButton(-1).setEnabled(true);
+                                      name.setError(failure.getMessage());
+                                    }
+                                  });
+                              throw failure;
+                            }
+                          },
+                          value -> {
+                            JSONObject accepted = (JSONObject) value;
+                            applyAcceptedSession(accepted.getJSONObject("session"));
+                            if (getActivity() != null)
+                              getActivity()
+                                  .getPreferences(0)
+                                  .edit()
+                                  .putString("nickname", nickname)
+                                  .apply();
+                            d.dismiss();
+                            if (pendingLink != null) {
+                              String rid = pendingLink;
+                              pendingLink = null;
+                              joinDialog(rid);
+                            } else enter();
+                          });
                     }));
     d.show();
   }

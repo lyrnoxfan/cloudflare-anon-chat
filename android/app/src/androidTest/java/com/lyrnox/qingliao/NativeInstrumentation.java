@@ -71,6 +71,45 @@ public final class NativeInstrumentation extends Instrumentation {
         rejected = true;
       }
       check(rejected, "unpaired surrogate");
+      core.run("session_required");
+      JSONObject created =
+          SessionProtocol.create(
+              core,
+              (path, body) -> {
+                check("/api/session".equals(path), "session mock receives contract path");
+                check("Mock guest".equals(body.getString("nickname")), "native request trims nickname");
+                JSONObject limits =
+                    new JSONObject()
+                        .put("text", 4000).put("nickname", 32).put("roomName", 80)
+                        .put("passwordMin", 1).put("passwordMax", 128)
+                        .put("image", 10 * 1024 * 1024).put("audio", 10 * 1024 * 1024)
+                        .put("video", 100 * 1024 * 1024).put("file", 50 * 1024 * 1024)
+                        .put("members", 8).put("sessionMs", 604800000)
+                        .put("grantMs", 7200000).put("uploadMs", 120000).put("callLeaseMs", 45000);
+                JSONObject response =
+                    new JSONObject()
+                        .put("id", "123e4567-e89b-12d3-a456-426614174000")
+                        .put("nickname", " Mock guest ")
+                        .put("expires", System.currentTimeMillis() + 60000)
+                        .put("limits", limits)
+                        .put("sfu", false);
+                return new SessionProtocol.HttpResponse(200, response.toString());
+              },
+              " Mock guest ");
+      check("Mock guest".equals(created.getString("nickname")), "local API mock opens native session");
+      check(core.run("session_state").getBoolean("contentVisible"), "mock session response opens chat state");
+      core.run("session_required");
+      boolean mockUnauthorized = false;
+      try {
+        SessionProtocol.create(
+            core,
+            (path, body) ->
+                new SessionProtocol.HttpResponse(401, "{\"error\":\"请先输入昵称\"}"),
+            "Retry");
+      } catch (Exception expected) {
+        mockUnauthorized = true;
+      }
+      check(mockUnauthorized && core.run("session_state").getBoolean("showGate"), "mock 401 keeps nickname gate visible");
       JSONArray list =
           new JSONArray()
               .put(

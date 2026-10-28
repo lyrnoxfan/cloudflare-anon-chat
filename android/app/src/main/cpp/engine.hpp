@@ -14,8 +14,11 @@ class Engine {
  std::string sessionId;
  std::string sessionNickname;
  int64_t sessionExpires=0;
+ bool sessionRequestPending=false;
+ bool sessionPendingWasActive=false;
  public:
  J command(const J& in);
+ J acceptSession(const J& session, int64_t now);
  static size_t units(const std::string& s);
  static std::string validText(const J& v,size_t max,size_t min=1);
  void merge(const J& m);
