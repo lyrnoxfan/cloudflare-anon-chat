@@ -45,8 +45,8 @@ public final class ChatFragment extends Fragment {
       members = new JSONArray(),
       emojiData = new JSONArray();
   private final Map<String, Drawable> emojiDrawables = new HashMap<>();
-  private LinearLayout root, emojiPanel, sessionGate;
-  private FrameLayout chatArea;
+  private FrameLayout root, sessionOverlay, chatArea;
+  private LinearLayout content, emojiPanel, sessionGate;
   private EditText gateName;
   private TextView gateError;
   private Button gateEnter;
@@ -167,8 +167,11 @@ public final class ChatFragment extends Fragment {
 
   @Override
   public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle state) {
-    root = vertical();
+    root = new FrameLayout(getActivity());
     root.setBackgroundColor(bg);
+    content = vertical();
+    content.setBackgroundColor(bg);
+    root.addView(content, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout header = new LinearLayout(getActivity());
     header.setGravity(Gravity.CENTER_VERTICAL);
     header.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -198,7 +201,7 @@ public final class ChatFragment extends Fragment {
     identity.setPadding(dp(9), dp(5), dp(9), dp(5));
     header.addView(identity);
     header.addView(button("⋯", this::roomMenu), new LinearLayout.LayoutParams(dp(48), dp(44)));
-    root.addView(header);
+    content.addView(header);
     statusView = text(status, 12, muted);
     statusView.setGravity(Gravity.CENTER);
     statusView.setPadding(0, dp(3), 0, dp(7));
@@ -207,10 +210,10 @@ public final class ChatFragment extends Fragment {
           if (session != null) enter();
           else showSessionGate();
         });
-    root.addView(statusView);
+    content.addView(statusView);
     older = button("加载更早消息", () -> history(true));
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
-    root.addView(older, new LinearLayout.LayoutParams(-1, dp(36)));
+    content.addView(older, new LinearLayout.LayoutParams(-1, dp(36)));
     list = new ListView(getActivity());
     list.setDivider(null);
     list.setDividerHeight(0);
@@ -222,42 +225,59 @@ public final class ChatFragment extends Fragment {
     list.setAdapter(adapter);
     chatArea = new FrameLayout(getActivity());
     chatArea.addView(list, new FrameLayout.LayoutParams(-1, -1));
+    sessionOverlay = new FrameLayout(getActivity());
+    View scrim = new View(getActivity());
+    scrim.setBackgroundColor(0x660f1710);
+    sessionOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
     sessionGate = vertical();
     sessionGate.setGravity(Gravity.CENTER_HORIZONTAL);
     sessionGate.setPadding(dp(24), dp(26), dp(24), dp(24));
     sessionGate.setBackground(shape(bg, 28));
     sessionGate.setElevation(dp(4));
-    TextView gateMark = text("轻聊", 12, green);
+    TextView gateMark = text("☺", 18, green);
     gateMark.setGravity(Gravity.CENTER);
     gateMark.setBackground(shape(pale, 24));
-    sessionGate.addView(gateMark, new LinearLayout.LayoutParams(dp(52), dp(34)));
-    TextView gateTitle = text("欢迎来到轻聊", 22, ink);
+    sessionGate.addView(gateMark, new LinearLayout.LayoutParams(dp(38), dp(38)));
+    TextView gateWelcome = text("欢迎来到轻聊", 12, muted);
+    LinearLayout.LayoutParams welcomeParams = new LinearLayout.LayoutParams(-1, -2);
+    welcomeParams.topMargin = dp(18);
+    sessionGate.addView(gateWelcome, welcomeParams);
+    TextView gateTitle = text("怎么称呼你？", 22, ink);
     gateTitle.setTypeface(null, Typeface.BOLD);
     LinearLayout.LayoutParams gateTitleParams = new LinearLayout.LayoutParams(-1, -2);
-    gateTitleParams.topMargin = dp(16);
+    gateTitleParams.topMargin = dp(10);
     sessionGate.addView(gateTitle, gateTitleParams);
-    TextView gateCopy = text("取个昵称，就可以进入公共大厅聊天。", 13, muted);
-    gateCopy.setPadding(0, dp(5), 0, dp(12));
+    TextView gateCopy = text("昵称不是账号，可以和别人重名。", 13, muted);
+    gateCopy.setPadding(0, dp(8), 0, dp(16));
     sessionGate.addView(gateCopy);
-    gateName = field("昵称（最多 32 字）", false);
+    TextView gateLabel = text("昵称", 12, ink);
+    sessionGate.addView(gateLabel);
+    gateName = field("", false);
     gateName.setText(nickname);
     gateName.setFilters(new InputFilter[] {new InputFilter.LengthFilter(32)});
-    sessionGate.addView(gateName, new LinearLayout.LayoutParams(-1, -2));
+    GradientDrawable gateField = shape(pale, 24);
+    gateField.setStroke(dp(2), green);
+    gateName.setBackground(gateField);
+    LinearLayout.LayoutParams gateFieldParams = new LinearLayout.LayoutParams(-1, dp(58));
+    gateFieldParams.topMargin = dp(4);
+    sessionGate.addView(gateName, gateFieldParams);
     gateError = text("", 12, green);
     gateError.setVisibility(View.GONE);
     sessionGate.addView(gateError);
-    gateEnter = button("进入聊天室", this::submitGateNickname);
+    gateEnter = button("进入聊天", this::submitGateNickname);
     gateEnter.setTextSize(15);
     gateEnter.setTypeface(null, Typeface.BOLD);
-    gateEnter.setBackground(shape(mine, 18));
-    LinearLayout.LayoutParams gateButtonParams = new LinearLayout.LayoutParams(-1, dp(50));
-    gateButtonParams.topMargin = dp(16);
+    gateEnter.setBackground(shape(mine, 22));
+    LinearLayout.LayoutParams gateButtonParams = new LinearLayout.LayoutParams(-1, dp(48));
+    gateButtonParams.topMargin = dp(20);
     sessionGate.addView(gateEnter, gateButtonParams);
-    sessionGate.setVisibility(View.GONE);
-    FrameLayout.LayoutParams gateParams = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
+    sessionOverlay.setVisibility(View.GONE);
+    int cardWidth = Math.min(dp(420), getResources().getDisplayMetrics().widthPixels - dp(32));
+    FrameLayout.LayoutParams gateParams = new FrameLayout.LayoutParams(cardWidth, -2, Gravity.CENTER);
     gateParams.setMargins(dp(16), dp(16), dp(16), dp(16));
-    chatArea.addView(sessionGate, gateParams);
-    root.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
+    sessionOverlay.addView(sessionGate, gateParams);
+    root.addView(sessionOverlay, new FrameLayout.LayoutParams(-1, -1));
+    content.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
     ScrollView sc = new ScrollView(getActivity());
@@ -292,7 +312,7 @@ public final class ChatFragment extends Fragment {
     }
     sc.addView(grid);
     emojiPanel.addView(sc, new LinearLayout.LayoutParams(-1, dp(220)));
-    root.addView(emojiPanel);
+    content.addView(emojiPanel);
     LinearLayout composer = new LinearLayout(getActivity());
     composer.setGravity(Gravity.BOTTOM);
     composer.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -327,7 +347,7 @@ public final class ChatFragment extends Fragment {
     send = button("发送", this::sendText);
     send.setVisibility(View.GONE);
     composer.addView(send, new LinearLayout.LayoutParams(dp(54), dp(46)));
-    root.addView(composer);
+    content.addView(composer);
     input.addTextChangedListener(
         new TextWatcher() {
           public void beforeTextChanged(CharSequence s, int a, int c, int n) {}
@@ -384,6 +404,8 @@ public final class ChatFragment extends Fragment {
     emojiPanel = null;
     chatArea = null;
     sessionGate = null;
+    sessionOverlay = null;
+    content = null;
     gateName = null;
     gateError = null;
     gateEnter = null;
@@ -447,8 +469,7 @@ public final class ChatFragment extends Fragment {
   private void updateSessionGate() {
     if (sessionGate == null || list == null) return;
     boolean show = sessionExpired && session == null;
-    sessionGate.setVisibility(show ? View.VISIBLE : View.GONE);
-    list.setVisibility(show ? View.INVISIBLE : View.VISIBLE);
+    if (sessionOverlay != null) sessionOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
     if (older != null && show) older.setVisibility(View.GONE);
   }
 
