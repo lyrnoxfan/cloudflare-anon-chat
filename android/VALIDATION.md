@@ -86,19 +86,20 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 
 ## 0.1.6 原生 WebRTC 发布/订阅实验切片 — 2026-10-28
 
-- 应用源码基线为 0.1.5 `main`（应用功能提交 `1b705d1268b2bfaae2de2e33ea76c58792f25d2b`，文档提交 `d9899dc`）。本轮只改 Android 子项目及验证文档；没有访问实时服务、触发线上 HTTP/WebSocket/SFU 操作、修改网站/Worker/Cloudflare 配置或远端数据，也没有部署或创建 Release。
+- 应用源码基线为 `main` 提交 `820d10a073f45a93f28692c785be43f72898d2af`。本轮只更新 Android 验证记录及交付文件；没有访问线上服务、触发线上 HTTP/WebSocket/SFU 操作、修改网站/Worker/Cloudflare 配置或远端数据，也没有部署或创建 Release。
 - 只读核对了仓库 `src/sfu.ts` 与 `public/call.js` 的信令字段；代码对接现有 `call-state`、`call-start`、`call-join`、`call-publish`、`call-ready`、`call-heartbeat`、`call-leave`/`call-cancel`，以及远端 `call-subscribe` 和 `call-answer`。SDK 依赖为 `io.github.webrtc-sdk:android:125.6422.07`。
-- 实验通话实现本地音频/可选 Camera2 视频发布，按成员状态请求远端轨道、生成并提交接收端 SDP answer；远端音轨启用，远端视频轨接到原生 `SurfaceViewRenderer`。界面菜单明确标注“测试”，权限仅在用户选择后申请。C++ Engine 校验发布/订阅信令响应与内部阶段；“answer 被服务端接受”仅表示信令结果，不代表 ICE/媒体连接成功。
-- 修正 Android 编译期问题：`ChatFragment` 闭包捕获未完成初始化的 call 变量改为显式引用槽；音频轨类型使用 SDK 实际定义 `MEDIA_TYPE_AUDIO`；补齐 WebRTC renderer/transceiver 类型导入。完整 Gradle 任务成功，故上述 Java API 至少已通过 SDK 编译。
-- 主机 C++ 回归使用 GCC 12、CMake 3.22.1、`-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer` 全新构建并运行，报告 82 项断言通过，无 ASan/UBSan 诊断。覆盖离线合成的 session、消息、通话发布/订阅响应和状态转移；不等于网络、媒体或设备端测试。
-- Gradle 8.9 / JDK 17 / Android SDK 35、NDK 27.2.12479018、CMake 3.22.1：`./gradlew --offline --no-daemon --max-workers=1 -Dorg.gradle.jvmargs='-Xmx768m -XX:MaxMetaspaceSize=384m' assembleDebug assembleDebugAndroidTest lintDebug` 成功；app、AndroidTest APK 和 C++ JNI 库均编译。`lintDebug` 成功，无 lint error。构建时主 APK 为 `com.lyrnox.qingliao`；用于侧载测试的临时 `.qa` 包只改变 applicationId，Gradle 文件在构建后已核对还原。
-- VPS Android 9 x86_64 模拟器：原有 `com.lyrnox.qingliao` 0.1.1 安装保持不动；0.1.6 QA 包使用独立 `com.lyrnox.qingliao.qa` 包名安装，instrumentation 包也成功安装。运行 `am instrument -w -r -e network false com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation` 返回 `31 Android JNI assertions passed`；网络模式明确关闭。没有卸载或覆盖原应用及其数据。没有启动 QA 主应用，因为其 `onStart()` 会访问 `/api/session`；因此没有访问线上服务。
-- 此设备测试只验证 JNI instrumentation。没有目视检查 UI，没有触发麦克风/摄像头权限，没有实际启动 WebRTC，也没有验证远端音视频轨连接、画面/声音输出或双端服务通话；真实聊天端到端、Android 真机与其他 Android 版本亦未验收。没有因此将主机断言或构建成功说成通话成功。
-- 下一节补记精确的代码提交、推送状态、APK/测试包 SHA-256、debug 签名与 ABI；这些要在最终 APK 从已提交应用代码重建后生成。
+- 实验通话代码包含本机音频/可选 Camera2 视频发布、按成员状态请求远端轨道、提交 SDP answer，以及远端视频渲染路径。C++ Engine 校验发布/订阅信令响应与内部阶段；服务端接受 answer 只证明信令步骤，不代表 ICE 或媒体连接成功。来电/接听体验和产品化通话界面尚未完成。
+- C++ 主机回归（GCC 12、CMake 3.22.1、`-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer`）已有 82 项断言通过、无 ASan/UBSan 诊断；本轮没有重复运行这组测试。此前 Gradle build 与 lint 也已通过；本轮重新运行的是下面列出的 APK 打包任务，而非完整 lint/主机测试。
+- 此前 31 项 Android JNI instrumentation 通过，针对的是先前的 `.qa` 测试包；该包不是下面从当前 `820d10a` 应用源码重建的正式 applicationId APK，且其测试发生在最后一处 C++ 状态调整前。因此那 31 项结果不能算作当前 0.1.6 APK 的 instrumentation 结果。
+- 按要求尝试用已授权 VPS 上的 Android 9 x86_64 模拟器安装当前 APK。模拟器已有 `com.lyrnox.qingliao` 0.1.1，且其签名证书与新 APK 不同；`adb install -r` 明确失败 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。为保护模拟器现有应用及其数据，没有卸载旧包、清除数据或尝试绕过签名检查；检查确认 0.1.1 仍在，故当前 APK 没有安装、启动或运行 instrumentation。未触达线上服务，也没有通过启动应用来发起网络请求。
+- 本轮 APK 以 JDK 17 / Gradle 8.9 / Android SDK 35 在 `main` 的应用源码提交 `820d10a073f45a93f28692c785be43f72898d2af` 上打包。命令：`ANDROID_HOME=/home/user/android-sdk ANDROID_SDK_ROOT=/home/user/android-sdk ./gradlew --offline --no-daemon --max-workers=1 assembleDebug assembleDebugAndroidTest`；Gradle 报告 62 项任务，15 执行、47 up-to-date，成功。该步骤没有重跑 `lintDebug`。
+- APK 元数据经 `aapt dump badging` 核对：`com.lyrnox.qingliao`，version 0.1.6 / versionCode 7，minSdk 26 / targetSdk 35；包含 `arm64-v8a`、`x86_64`。大小 29,088,791 字节，SHA-256 `cbd48723abf4de382e2124f5d6630cce211f26d43f4d50c9054269107af2f37a`。`apksigner verify --verbose --print-certs` 验证 APK Signature Scheme v2 有效；签名证书 SHA-256 `5ac2bc3b2b76d22e9d9df95dbbd63b09526a402e030765a1d3e776ca58b39fd1`，为 debug 签名，不是 release key。
+- 配套 AndroidTest APK 大小 17,014 字节，SHA-256 `bdf921ab91599a0d8c5442e38d8496bd7af0d695fe10b7d41939ddd1da48bbd4`。它成功构建，但由于上述包签名不匹配，没有安装或运行。
+- 对应完整 Android 源码归档包含 Gradle wrapper、构建配置、app 源码、测试和本验证文档；不含本机 SDK/缓存或签名密钥。源码 ZIP 的 SHA-256 与附件信息随本轮交付记录。
 
 ### 仍未完成
 
-- 来电/接听 UI、通话生命周期产品化及设备上真实双向通话/媒体质量验收。
-- 整体网页 UI 对齐与头像/消息分组等视觉细节。
-- 真实线上聊天、服务端与音视频端到端验证（本轮明确不访问线上服务）。
+- 当前 0.1.6 APK 未能在已有 Android 9 模拟器上安装或运行 instrumentation；拒绝通过卸载旧签名应用来避免潜在数据损失。
+- 来电/接听 UI、通话生命周期产品化，以及真实双端音频/视频连接、摄像头/麦克风权限与媒体质量验收。
+- 整体网页 UI 对齐与视觉回归；真实线上聊天、服务端和音视频端到端验证（本轮明确不访问线上服务）。
 - 正式 release key 签名；当前仅为 debug 测试 APK。
