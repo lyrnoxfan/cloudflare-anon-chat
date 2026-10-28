@@ -22,6 +22,10 @@ import java.util.*;
 import java.util.concurrent.*;
 import okhttp3.*;
 import org.json.*;
+import org.webrtc.EglBase;
+import org.webrtc.RendererCommon;
+import org.webrtc.SurfaceViewRenderer;
+import org.webrtc.VideoTrack;
 
 @SuppressWarnings("deprecation")
 public final class ChatFragment extends Fragment {
@@ -63,6 +67,10 @@ public final class ChatFragment extends Fragment {
   private MediaPlayer player;
   private File exportFile;
   private String exportName;
+  private NativeCallSession nativeCall;
+  private SurfaceViewRenderer remoteRenderer;
+  private VideoTrack remoteVideoTrack;
+  private String pendingCallKind = "";
 
   interface Job {
     Object run() throws Exception;
@@ -403,6 +411,7 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onStop() {
     started = false;
+    stopNativeCall();
     disconnect();
     cancelRecording();
     stopPlayer();
@@ -411,6 +420,7 @@ public final class ChatFragment extends Fragment {
 
   @Override
   public void onDestroyView() {
+    clearRemoteRenderer();
     if (nicknamePrompt != null) {
       nicknamePrompt.dismiss();
       nicknamePrompt = null;
@@ -442,6 +452,7 @@ public final class ChatFragment extends Fragment {
   public void onDestroy() {
     dead = true;
     main.removeCallbacksAndMessages(null);
+    stopNativeCall();
     disconnect();
     net.close();
     io.shutdownNow();
@@ -677,7 +688,7 @@ public final class ChatFragment extends Fragment {
     new AlertDialog.Builder(getActivity())
         .setTitle("轻聊")
         .setItems(
-            new String[] {"公共大厅", "创建私密房间", "通过房号加入", "复制房间链接", "在线成员", "关于此版本"},
+            new String[] {"公共大厅", "创建私密房间", "通过房号加入", "复制房间链接", "在线成员", "语音/视频通话（测试）", "关于此版本"},
             (d, w) -> {
               switch (w) {
                 case 0:
@@ -696,19 +707,162 @@ public final class ChatFragment extends Fragment {
                   showMembers();
                   break;
                 case 5:
+                  nativeCallMenu();
+                  break;
+                case 6:
                   new AlertDialog.Builder(getActivity())
-                      .setTitle("轻聊 0.1.1")
+                      .setTitle("轻聊 0.1.6")
                       .setMessage(
                           "原生 Android 测试版\n"
-                              + "单 Activity / 自定义 Fragment 与 View / C++ 消息校验与排序核心\n\n"
+                              + "单 Activity / 自定义 Fragment 与 View / C++ 协议及消息核心\n\n"
                               + "支持文字、参考表情、房号私聊、图片与文件、语音录制和媒体播放。\n\n"
-                              + "音视频实时通话尚未实现。退到后台会断开实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
+                              + "语音/视频通话仍属实验：原生端已实现发布，并正在按现有信令接入远端接收；尚未通过设备端或真实双端通话验收。退到后台会清理本机通话与实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
                               + "私密房间使用服务端口令授权，不是端到端加密。表情素材沿用网站，公开分发前需确认许可。")
                       .setPositiveButton("知道了", null)
                       .show();
               }
             })
         .show();
+  }
+
+  private void nativeCallMenu() {
+    if (getActivity() == null) return;
+    if (session == null) {
+      toast("请先设置昵称");
+      nicknameDialog(true);
+      return;
+    }
+    if (nativeCall != null) {
+      new AlertDialog.Builder(getActivity())
+          .setTitle("原生媒体测试")
+          .setMessage("本机已接入媒体，正在尝试接收其他参会者。通话仍未经过设备端验收。")
+          .setPositiveButton("结束测试", (d, w) -> stopNativeCall())
+          .setNegativeButton("返回", null)
+          .show();
+      return;
+    }
+    new AlertDialog.Builder(getActivity())
+        .setTitle("原生媒体测试")
+        .setMessage("选择本机媒体模式。其他参会者须使用相同通话并已成功发布；远端接收和画面仍未在设备上验收。")
+        .setItems(new String[] {"发布语音", "发布语音和视频"},
+            (d, which) -> requestNativeCall(which == 0 ? "audio" : "video"))
+        .setNegativeButton("取消", null)
+        .show();
+  }
+
+  private void requestNativeCall(String kind) {
+    if (getActivity() == null) return;
+    ArrayList<String> missing = new ArrayList<>();
+    if (getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+      missing.add(Manifest.permission.RECORD_AUDIO);
+    if ("video".equals(kind) && getActivity().checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+      missing.add(Manifest.permission.CAMERA);
+    if (!missing.isEmpty()) {
+      pendingCallKind = kind;
+      requestPermissions(missing.toArray(new String[0]), 41);
+      return;
+    }
+    startNativeCall(kind);
+  }
+
+  private void startNativeCall(String kind) {
+    if (getActivity() == null || session == null || nativeCall != null) return;
+    final String selfId = session.optString("id", "");
+    final NativeCallSession[] callRef = new NativeCallSession[1];
+    final NativeCallSession call = new NativeCallSession(getActivity(), core, net, room, selfId,
+        new NativeCallSession.Listener() {
+          @Override public void onStatus(String message) {
+            main.post(() -> {
+              if (nativeCall == callRef[0] && getActivity() != null) {
+                setStatus(message);
+                toast(message);
+              }
+            });
+          }
+          @Override public void onFailure(String message) {
+            main.post(() -> {
+              if (nativeCall == callRef[0]) nativeCall = null;
+              clearRemoteRenderer();
+              if (getActivity() != null) {
+                setStatus("通话测试已停止");
+                toast(message);
+              }
+            });
+          }
+          @Override public void onRemoteVideo(VideoTrack track, EglBase.Context eglContext) {
+            main.post(() -> {
+              if (nativeCall != callRef[0] || getActivity() == null || root == null) return;
+              clearRemoteRenderer();
+              if (track == null || eglContext == null) return;
+              try {
+                SurfaceViewRenderer renderer = new SurfaceViewRenderer(getActivity());
+                renderer.init(eglContext, new RendererCommon.RendererEvents() {
+                  @Override public void onFirstFrameRendered() {}
+                  @Override public void onFrameResolutionChanged(int width, int height, int rotation) {}
+                });
+                renderer.setMirror(false);
+                renderer.setEnableHardwareScaler(true);
+                renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(160), dp(220), Gravity.TOP | Gravity.RIGHT);
+                params.topMargin = dp(72);
+                params.rightMargin = dp(12);
+                root.addView(renderer, params);
+                track.addSink(renderer);
+                remoteRenderer = renderer;
+                remoteVideoTrack = track;
+              } catch (RuntimeException ignored) { clearRemoteRenderer(); }
+            });
+          }
+        });
+    callRef[0] = call;
+    nativeCall = call;
+    setStatus("正在准备原生媒体…");
+    try {
+      io.execute(() -> {
+        try {
+          call.start(kind);
+        } catch (Exception e) {
+          call.stop();
+          main.post(() -> {
+            if (nativeCall == callRef[0]) nativeCall = null;
+            if (getActivity() != null) {
+              setStatus("原生媒体测试未启动");
+              toast(e.getMessage() == null ? "通话测试失败" : e.getMessage());
+            }
+          });
+        }
+      });
+    } catch (RejectedExecutionException e) {
+      nativeCall = null;
+      call.requestStop();
+      toast("应用正在关闭，无法启动通话测试");
+    }
+  }
+
+  private void clearRemoteRenderer() {
+    if (remoteVideoTrack != null && remoteRenderer != null) {
+      try { remoteVideoTrack.removeSink(remoteRenderer); } catch (Exception ignored) {}
+    }
+    remoteVideoTrack = null;
+    if (remoteRenderer != null) {
+      if (remoteRenderer.getParent() instanceof ViewGroup)
+        ((ViewGroup) remoteRenderer.getParent()).removeView(remoteRenderer);
+      try { remoteRenderer.release(); } catch (Exception ignored) {}
+      remoteRenderer = null;
+    }
+  }
+
+  private void stopNativeCall() {
+    clearRemoteRenderer();
+    NativeCallSession call = nativeCall;
+    if (call == null) return;
+    nativeCall = null;
+    call.requestStop();
+    try {
+      io.execute(call::stop);
+    } catch (RejectedExecutionException ignored) {
+      call.stop();
+    }
   }
 
   private void createDialog() {
@@ -1532,6 +1686,14 @@ public final class ChatFragment extends Fragment {
     if (request == 20) {
       if (result.length > 0 && result[0] == PackageManager.PERMISSION_GRANTED) startRecording();
       else toast("未获麦克风权限，仍可发送文字和文件");
+    }
+    if (request == 41) {
+      String kind = pendingCallKind;
+      pendingCallKind = "";
+      boolean granted = result.length > 0;
+      for (int value : result) if (value != PackageManager.PERMISSION_GRANTED) granted = false;
+      if (granted && !kind.isEmpty()) startNativeCall(kind);
+      else toast("未获得媒体权限，未启动通话测试");
     }
   }
 

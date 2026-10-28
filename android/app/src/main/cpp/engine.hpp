@@ -16,6 +16,9 @@ class Engine {
  int64_t sessionExpires=0;
  bool sessionRequestPending=false;
  bool sessionPendingWasActive=false;
+ std::string callPhase="idle";
+ std::string callId;
+ std::string callKind;
  public:
  J command(const J& in);
  J acceptSession(const J& session, int64_t now);

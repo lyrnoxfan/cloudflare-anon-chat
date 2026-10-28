@@ -82,3 +82,23 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 - AndroidTest APK: 17,014 bytes; SHA-256 `8e27c72d367f6b57d73b81d97626432881bac96cc1e51cc3ec007ca01d371428`. It was built but not installed or run.
 - Host C++ regression: GCC 12.2, CMake 3.22.1, `-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer`; build succeeded and direct test executable reported 64 native assertions passed. This computer does not have `ctest`; no CTest claim is made.
 - Runtime boundary: `/home/user/android-sdk/platform-tools/adb devices -l` returned no attached devices, `/dev/kvm` is absent, and no Android emulator executable is installed. The APK was not installed/launched; Android JNI instrumentation and actual chat service E2E remain unverified. No live endpoint was accessed, no Cloudflare service/config/data was changed, no VPS used, no GitHub Actions or Release triggered, and nothing deployed.
+
+
+## 0.1.6 原生 WebRTC 发布/订阅实验切片 — 2026-10-28
+
+- 应用源码基线为 0.1.5 `main`（应用功能提交 `1b705d1268b2bfaae2de2e33ea76c58792f25d2b`，文档提交 `d9899dc`）。本轮只改 Android 子项目及验证文档；没有访问实时服务、触发线上 HTTP/WebSocket/SFU 操作、修改网站/Worker/Cloudflare 配置或远端数据，也没有部署或创建 Release。
+- 只读核对了仓库 `src/sfu.ts` 与 `public/call.js` 的信令字段；代码对接现有 `call-state`、`call-start`、`call-join`、`call-publish`、`call-ready`、`call-heartbeat`、`call-leave`/`call-cancel`，以及远端 `call-subscribe` 和 `call-answer`。SDK 依赖为 `io.github.webrtc-sdk:android:125.6422.07`。
+- 实验通话实现本地音频/可选 Camera2 视频发布，按成员状态请求远端轨道、生成并提交接收端 SDP answer；远端音轨启用，远端视频轨接到原生 `SurfaceViewRenderer`。界面菜单明确标注“测试”，权限仅在用户选择后申请。C++ Engine 校验发布/订阅信令响应与内部阶段；“answer 被服务端接受”仅表示信令结果，不代表 ICE/媒体连接成功。
+- 修正 Android 编译期问题：`ChatFragment` 闭包捕获未完成初始化的 call 变量改为显式引用槽；音频轨类型使用 SDK 实际定义 `MEDIA_TYPE_AUDIO`；补齐 WebRTC renderer/transceiver 类型导入。完整 Gradle 任务成功，故上述 Java API 至少已通过 SDK 编译。
+- 主机 C++ 回归使用 GCC 12、CMake 3.22.1、`-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer` 全新构建并运行，报告 82 项断言通过，无 ASan/UBSan 诊断。覆盖离线合成的 session、消息、通话发布/订阅响应和状态转移；不等于网络、媒体或设备端测试。
+- Gradle 8.9 / JDK 17 / Android SDK 35、NDK 27.2.12479018、CMake 3.22.1：`./gradlew --offline --no-daemon --max-workers=1 -Dorg.gradle.jvmargs='-Xmx768m -XX:MaxMetaspaceSize=384m' assembleDebug assembleDebugAndroidTest lintDebug` 成功；app、AndroidTest APK 和 C++ JNI 库均编译。`lintDebug` 成功，无 lint error。构建时主 APK 为 `com.lyrnox.qingliao`；用于侧载测试的临时 `.qa` 包只改变 applicationId，Gradle 文件在构建后已核对还原。
+- VPS Android 9 x86_64 模拟器：原有 `com.lyrnox.qingliao` 0.1.1 安装保持不动；0.1.6 QA 包使用独立 `com.lyrnox.qingliao.qa` 包名安装，instrumentation 包也成功安装。运行 `am instrument -w -r -e network false com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation` 返回 `31 Android JNI assertions passed`；网络模式明确关闭。没有卸载或覆盖原应用及其数据。没有启动 QA 主应用，因为其 `onStart()` 会访问 `/api/session`；因此没有访问线上服务。
+- 此设备测试只验证 JNI instrumentation。没有目视检查 UI，没有触发麦克风/摄像头权限，没有实际启动 WebRTC，也没有验证远端音视频轨连接、画面/声音输出或双端服务通话；真实聊天端到端、Android 真机与其他 Android 版本亦未验收。没有因此将主机断言或构建成功说成通话成功。
+- 下一节补记精确的代码提交、推送状态、APK/测试包 SHA-256、debug 签名与 ABI；这些要在最终 APK 从已提交应用代码重建后生成。
+
+### 仍未完成
+
+- 来电/接听 UI、通话生命周期产品化及设备上真实双向通话/媒体质量验收。
+- 整体网页 UI 对齐与头像/消息分组等视觉细节。
+- 真实线上聊天、服务端与音视频端到端验证（本轮明确不访问线上服务）。
+- 正式 release key 签名；当前仅为 debug 测试 APK。

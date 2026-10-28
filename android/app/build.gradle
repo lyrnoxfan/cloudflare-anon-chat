@@ -8,8 +8,8 @@ android {
   applicationId 'com.lyrnox.qingliao'
   minSdk 26
   targetSdk 35
-  versionCode 6
-  versionName '0.1.5'
+  versionCode 7
+  versionName '0.1.6'
   testInstrumentationRunner 'com.lyrnox.qingliao.NativeInstrumentation'
   ndk { abiFilters 'arm64-v8a', 'x86_64' }
   externalNativeBuild { cmake { cppFlags '-std=c++17 -Wall -Wextra -Werror' } }
@@ -18,4 +18,7 @@ android {
  buildTypes { release { minifyEnabled false } }
  lint { abortOnError true }
 }
-dependencies { implementation 'com.squareup.okhttp3:okhttp:4.12.0' }
+dependencies {
+ implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+ implementation 'io.github.webrtc-sdk:android:125.6422.07'
+}

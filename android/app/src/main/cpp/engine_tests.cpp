@@ -55,5 +55,31 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  for(auto bad:std::vector<std::string>{std::string("\xc0\x80",2),std::string("\xed\xa0\x80",3),std::string("\xf4\x90\x80\x80",4),std::string("\xf0",1)}){bool failed=false;try{ql::utf16(bad);}catch(...){failed=true;}check(failed);}
  bool failed=false;try{ql::utf8(std::u16string(1,0xd800));}catch(...){failed=true;}check(failed);
  check(ql::utf8(std::u16string(1,0))==std::string(1,0));
+ ql::Engine callEngine;auto callRejects=[&](J j){try{callEngine.command(j);return false;}catch(...){return true;}};
+ check(callEngine.command({{"op","call_begin"},{"kind","video"}})["phase"]=="starting");
+ check(callRejects({{"op","call_begin"},{"kind","audio"}}));
+ check(callRejects({{"op","call_started"},{"call",{{"id","call-1"},{"kind","audio"},{"owner","owner"}}}}));
+ auto callStart=callEngine.command({{"op","call_started"},{"call",{{"id","call-1"},{"kind","video"},{"owner","owner"}}}});check(callStart["phase"]=="ringing"&&callStart["id"]=="call-1");
+ J ice=J::array({{{"urls","stun:stun.example.invalid:3478"}}});
+ J joined={{"id","call-1"},{"kind","video"},{"joined",true},{"cap","ephemeral-cap"}};
+ auto joinResult=callEngine.command({{"op","call_joined"},{"call",joined},{"iceServers",ice}});check(joinResult["phase"]=="joined"&&joinResult["iceServers"].size()==1);
+ check(callRejects({{"op","call_joined"},{"call",{{"id","call-1"},{"kind","video"},{"joined",true},{"cap","cap"}}},{"iceServers",J::array({{{"urls","javascript:bad"}}})}}));
+ J publishResponse={{"sessionDescription",{{"type","answer"},{"sdp","v=0\\r\\no=- 1 1 IN IP4 127.0.0.1\\r\\n"}}},{"tracks",J::array({{{"kind","audio"},{"mid","0"}}})}};
+ auto publish=callEngine.command({{"op","call_published"},{"response",publishResponse}});check(publish["phase"]=="published"&&publish["sessionDescription"]["type"]=="answer");
+ check(callEngine.command({{"op","call_ready"}})["phase"]=="ready");
+ J subscribeResponse={{"requiresImmediateRenegotiation",true},{"sessionDescription",{{"type","offer"},{"sdp","v=0\\r\\no=- 2 2 IN IP4 127.0.0.1\\r\\n"}}},{"tracks",J::array({{{"mid","1"},{"trackName","peer-video"}}})}};
+ check(callEngine.command({{"op","call_subscribed"},{"response",subscribeResponse}})["phase"]=="subscribed");
+ check(callEngine.command({{"op","call_answered"}})["phase"]=="answered");
+ check(callEngine.command({{"op","call_state"}})["id"]=="call-1");
+ check(callEngine.command({{"op","call_failed"}})["phase"]=="failed");
+ check(callEngine.command({{"op","call_cleanup"}})["phase"]=="idle"&&callEngine.command({{"op","call_state"}})["id"]=="");
+ check(callRejects({{"op","call_begin"},{"kind","screen"}}));
+ ql::Engine badCall;auto badReject=[&](J j){try{badCall.command(j);return false;}catch(...){return true;}};
+ badCall.command({{"op","call_begin"},{"kind","audio"}});badCall.command({{"op","call_started"},{"call",{{"id","call-2"},{"kind","audio"},{"owner","owner"}}}});
+ check(badReject({{"op","call_joined"},{"call",{{"id","call-2"},{"kind","audio"},{"joined",true},{"cap",""}}},{"iceServers",ice}}));
+ badCall.command({{"op","call_joined"},{"call",{{"id","call-2"},{"kind","audio"},{"joined",true},{"cap","c"}}},{"iceServers",ice}});
+ check(badReject({{"op","call_published"},{"response",{{"sessionDescription",{{"type","offer"},{"sdp","v=0\\r\\n"}}},{"tracks",J::array({{{"kind","audio"},{"mid","0"}}})}}}}));
+ check(badCall.command({{"op","call_state"}})["phase"]=="joined");
+ badCall.command({{"op","call_failed"}});check(badCall.command({{"op","call_state"}})["phase"]=="failed");badCall.command({{"op","call_cleanup"}});
  std::cout<<checks<<" native assertions passed\n";
 }

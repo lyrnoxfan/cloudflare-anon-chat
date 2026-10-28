@@ -178,6 +178,38 @@ final class ChatNet implements Closeable {
     }
   }
 
+  JSONObject callApi(String room, String op, JSONObject body, String cap) throws Exception {
+    if (room == null || !room.matches("[A-Za-z0-9-]{1,80}"))
+      throw new IOException("房间标识无效");
+    Set<String> allowed = new HashSet<>(Arrays.asList(
+        "call-state", "call-start", "call-join", "call-publish", "call-ready",
+        "call-heartbeat", "call-leave", "call-cancel", "call-decline",
+        "call-subscribe", "call-answer", "call-reset-subscriber"));
+    if (!allowed.contains(op)) throw new IOException("通话操作不受支持");
+    boolean state = "call-state".equals(op);
+    if (state != (body == null)) throw new IOException("通话请求方法无效");
+    String path = "/api/r/" + room + "/" + op;
+    Request.Builder request = new Request.Builder().url(BASE + path).header("Origin", BASE);
+    if (cap != null && !cap.isEmpty()) {
+      if (cap.length() > 512 || cap.indexOf('\r') >= 0 || cap.indexOf('\n') >= 0)
+        throw new IOException("通话授权格式无效");
+      request.header("x-call-cap", cap);
+    }
+    if (state) request.get();
+    else request.post(RequestBody.create(body.toString(), JSON));
+    try (Response response = client.newCall(request.build()).execute()) {
+      ResponseBody responseBody = response.body();
+      if (responseBody == null) throw new IOException("服务器没有返回通话响应");
+      String raw = responseBody.string();
+      if (raw.length() > 131072) throw new IOException("通话响应过大");
+      JSONObject result;
+      try { result = new JSONObject(raw); }
+      catch (JSONException e) { throw new ApiError(response.code(), "通话响应格式异常（" + response.code() + "）"); }
+      if (!response.isSuccessful()) throw new ApiError(response.code(), result.optString("error", "通话请求失败"));
+      return result;
+    }
+  }
+
   WebSocket socket(String room, WebSocketListener l) {
     return client.newWebSocket(
         new Request.Builder()

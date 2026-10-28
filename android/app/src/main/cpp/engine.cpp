@@ -47,7 +47,169 @@ J Engine::command(const J& in){auto op=in.at("op").get<std::string>();
  }
  if(op=="session_accept")return acceptSession(in.at("session"),in.at("now").get<int64_t>());
  if(op=="gate"){bool show=in.value("expired",false)&&!in.value("hasSession",false);return {{"show",show},{"contentVisible",!show}};}
- if(op=="reset"){auto r=validText(in.at("room"),80);if(!std::all_of(r.begin(),r.end(),[](unsigned char c){return std::isalnum(c)||c=='-';})||std::any_of(r.begin(),r.end(),[](unsigned char c){return c>127;}))throw std::runtime_error("房号格式不正确");room=r;messages.clear();deleted.clear();members=J::array();return {{"room",room}};}
+ if (op == "call_begin") {
+   if (callPhase != "idle" && callPhase != "failed")
+     throw std::runtime_error("已有通话正在进行");
+   auto kind = validText(in.at("kind"), 8);
+   if (kind != "audio" && kind != "video")
+     throw std::runtime_error("通话类型无效");
+   callKind = kind;
+   callId.clear();
+   callPhase = "starting";
+   return {{"phase", callPhase}, {"kind", callKind}};
+ }
+ if (op == "call_started") {
+   if (callPhase != "starting")
+     throw std::runtime_error("当前状态不能创建通话");
+   auto c = in.at("call");
+   if (!c.is_object() || !c.contains("id") || !c["id"].is_string() ||
+       !c.contains("kind") || c["kind"] != callKind || !c.contains("owner") ||
+       !c["owner"].is_string())
+     throw std::runtime_error("通话创建响应无效");
+   auto id = c["id"].get<std::string>();
+   if (id.empty() || id.size() > 80 ||
+       !std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+         return std::isalnum(ch) || ch == '-';
+       }))
+     throw std::runtime_error("通话标识无效");
+   callId = id;
+   callPhase = "ringing";
+   return {{"phase", callPhase}, {"id", callId}, {"kind", callKind}};
+ }
+ if (op == "call_joined") {
+   if (callPhase != "ringing" && callPhase != "joining")
+     throw std::runtime_error("当前状态不能加入通话");
+   auto c = in.at("call");
+   auto servers = in.at("iceServers");
+   if (!c.is_object() || c.value("id", std::string()) != callId ||
+       c.value("kind", std::string()) != callKind ||
+       !c.value("joined", false) || !c.contains("cap") ||
+       !c["cap"].is_string() || c["cap"].get<std::string>().empty() ||
+       c["cap"].get<std::string>().size() > 512)
+     throw std::runtime_error("通话加入响应无效");
+   if (!servers.is_array() || servers.empty() || servers.size() > 16)
+     throw std::runtime_error("ICE 服务列表无效");
+   for (const auto &server : servers) {
+     if (!server.is_object() || !server.contains("urls"))
+       throw std::runtime_error("ICE 服务格式无效");
+     J urls = server["urls"];
+     if (urls.is_string())
+       urls = J::array({urls});
+     if (!urls.is_array() || urls.empty() || urls.size() > 8)
+       throw std::runtime_error("ICE 地址无效");
+     for (const auto &u : urls) {
+       if (!u.is_string())
+         throw std::runtime_error("ICE 地址无效");
+       auto text = u.get<std::string>();
+       if (text.size() > 512 ||
+           !(text.rfind("stun:", 0) == 0 || text.rfind("stuns:", 0) == 0 ||
+             text.rfind("turn:", 0) == 0 || text.rfind("turns:", 0) == 0))
+         throw std::runtime_error("ICE 地址协议无效");
+     }
+   }
+   callPhase = "joined";
+   return {{"phase", callPhase},
+           {"id", callId},
+           {"kind", callKind},
+           {"iceServers", servers}};
+ }
+ if (op == "call_published") {
+   if (callPhase != "joined" && callPhase != "publishing")
+     throw std::runtime_error("当前状态不能发布媒体");
+   auto response = in.at("response");
+   if (!response.is_object() || !response.contains("sessionDescription") ||
+       !response["sessionDescription"].is_object())
+     throw std::runtime_error("SFU 发布应答无效");
+   const auto &s = response["sessionDescription"];
+   if (s.value("type", std::string()) != "answer" || !s.contains("sdp") ||
+       !s["sdp"].is_string())
+     throw std::runtime_error("SFU 发布 SDP 类型无效");
+   auto text = s["sdp"].get<std::string>();
+   if (text.size() < 4 || text.size() >= 60000 || text.rfind("v=0", 0) != 0)
+     throw std::runtime_error("SFU 发布 SDP 无效");
+   if (!response.contains("tracks") || !response["tracks"].is_array() ||
+       response["tracks"].empty() || response["tracks"].size() > 2)
+     throw std::runtime_error("SFU 发布轨道应答无效");
+   callPhase = "published";
+   return {{"phase", callPhase},
+           {"sessionDescription", s},
+           {"tracks", response["tracks"]}};
+ }
+ if (op == "call_ready") {
+   if (callPhase != "published" && callPhase != "ready")
+     throw std::runtime_error("当前状态不能确认媒体就绪");
+   callPhase = "ready";
+   return {{"phase", callPhase}, {"id", callId}};
+ }
+ if (op == "call_subscribed") {
+   if (callPhase != "ready" && callPhase != "answered" &&
+       callPhase != "subscribing")
+     throw std::runtime_error("当前状态不能订阅媒体");
+   auto response = in.at("response");
+   if (!response.is_object() ||
+       response.value("requiresImmediateRenegotiation", false) != true ||
+       !response.contains("sessionDescription") ||
+       !response["sessionDescription"].is_object())
+     throw std::runtime_error("SFU 订阅应答无效");
+   const auto &s = response["sessionDescription"];
+   if (s.value("type", std::string()) != "offer" || !s.contains("sdp") ||
+       !s["sdp"].is_string())
+     throw std::runtime_error("SFU 订阅 SDP 类型无效");
+   auto text = s["sdp"].get<std::string>();
+   if (text.size() < 4 || text.size() >= 60000 || text.rfind("v=0", 0) != 0)
+     throw std::runtime_error("SFU 订阅 SDP 无效");
+   if (!response.contains("tracks") || !response["tracks"].is_array() ||
+       response["tracks"].empty() || response["tracks"].size() > 16)
+     throw std::runtime_error("SFU 订阅轨道应答无效");
+   for (const auto &t : response["tracks"]) {
+     if (!t.is_object() || !t.contains("mid") || !t["mid"].is_string() ||
+         !t.contains("trackName") || !t["trackName"].is_string())
+       throw std::runtime_error("SFU 订阅轨道格式无效");
+     if (t.contains("errorCode") && !t["errorCode"].is_null() &&
+         t["errorCode"] != 0 && t["errorCode"] != "")
+       throw std::runtime_error("SFU 媒体轨道订阅失败");
+   }
+   callPhase = "subscribed";
+   return {{"phase", callPhase},
+           {"sessionDescription", s},
+           {"tracks", response["tracks"]}};
+ }
+ if (op == "call_answered") {
+   if (callPhase != "subscribed" && callPhase != "answered")
+     throw std::runtime_error("当前状态没有待确认的远端媒体");
+   callPhase = "answered";
+   return {{"phase", callPhase}, {"id", callId}};
+ }
+ if (op == "call_failed") {
+   if (callPhase == "idle")
+     return {{"phase", callPhase}};
+   callPhase = "failed";
+   return {{"phase", callPhase}, {"id", callId}};
+ }
+ if (op == "call_cleanup") {
+   callPhase = "idle";
+   callId.clear();
+   callKind.clear();
+   return {{"phase", callPhase}};
+ }
+ if (op == "call_state")
+   return {{"phase", callPhase}, {"id", callId}, {"kind", callKind}};
+ if (op == "reset") {
+   auto r = validText(in.at("room"), 80);
+   if (!std::all_of(
+           r.begin(), r.end(),
+           [](unsigned char c) { return std::isalnum(c) || c == '-'; }) ||
+       std::any_of(r.begin(), r.end(), [](unsigned char c) { return c > 127; }))
+     throw std::runtime_error("房号格式不正确");
+   room = r;
+   messages.clear();
+   deleted.clear();
+   members = J::array();
+   callPhase = "idle";
+   callId.clear();
+   callKind.clear();
+   return {{"room", room}};
+ }
  if(op=="session")return {{"nickname",validText(in.at("nickname"),32)}};
  if(op=="room")return {{"name",validText(in.at("name"),80)},{"password",validText(in.at("password"),128)}};
  if(op=="join")return {{"password",validText(in.at("password"),128)}};
