@@ -49,7 +49,8 @@ public final class ChatFragment extends Fragment {
       members = new JSONArray(),
       emojiData = new JSONArray();
   private final Map<String, Drawable> emojiDrawables = new HashMap<>();
-  private FrameLayout root, sessionOverlay, chatArea;
+  private FrameLayout root, sessionOverlay, chatArea, drawerOverlay;
+  private LinearLayout drawerPanel;
   private LinearLayout content, emojiPanel, sessionGate;
   private EditText gateName;
   private TextView gateError;
@@ -205,32 +206,31 @@ public final class ChatFragment extends Fragment {
     LinearLayout header = new LinearLayout(getActivity());
     header.setGravity(Gravity.CENTER_VERTICAL);
     header.setPadding(dp(12), dp(8), dp(12), dp(8));
-    header.addView(
-        button(
-            "‹",
-            () -> {
-              if (!room.equals("lobby")) switchRoom("lobby");
-              else roomMenu();
-            }),
-        new LinearLayout.LayoutParams(dp(44), dp(44)));
+    Button drawerToggle = button("☰", this::openRoomDrawer);
+    drawerToggle.setContentDescription("打开房间导航");
+    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(44), dp(44)));
     LinearLayout titles = vertical();
-    titles.setPadding(dp(12), 0, dp(8), 0);
-    heading = text(roomName, 19, ink);
+    titles.setPadding(dp(10), 0, dp(8), 0);
+    heading = text(roomName, 18, ink);
     heading.setTypeface(null, Typeface.BOLD);
-    subtitle = text("轻聊 · 原生 Android", 12, muted);
+    subtitle = text("正在连接…", 12, muted);
     titles.addView(heading);
     titles.addView(subtitle);
     titles.setOnClickListener(v -> shareRoom());
-    TextView roomMark = text("聊", 13, green);
-    roomMark.setGravity(Gravity.CENTER);
-    roomMark.setBackground(shape(pale, 22));
-    header.addView(roomMark, new LinearLayout.LayoutParams(dp(34), dp(34)));
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
-    Button identity = button("匿名", () -> nicknameDialog(false));
-    identity.setTextSize(11);
-    identity.setPadding(dp(9), dp(5), dp(9), dp(5));
-    header.addView(identity);
-    header.addView(button("⋯", this::roomMenu), new LinearLayout.LayoutParams(dp(48), dp(44)));
+    Button identity = button("☺", () -> nicknameDialog(false));
+    identity.setContentDescription("更改昵称");
+    identity.setTextSize(17);
+    header.addView(identity, new LinearLayout.LayoutParams(dp(42), dp(42)));
+    Button audioAction = button("语", () -> startCallFromToolbar("audio"));
+    audioAction.setContentDescription("发起语音通话");
+    header.addView(audioAction, new LinearLayout.LayoutParams(dp(42), dp(42)));
+    Button videoAction = button("视", () -> startCallFromToolbar("video"));
+    videoAction.setContentDescription("发起视频通话");
+    header.addView(videoAction, new LinearLayout.LayoutParams(dp(42), dp(42)));
+    Button more = button("⋯", this::roomMenu);
+    more.setContentDescription("更多房间操作");
+    header.addView(more, new LinearLayout.LayoutParams(dp(42), dp(42)));
     content.addView(header);
     statusView = text(status, 12, muted);
     statusView.setGravity(Gravity.CENTER);
@@ -356,6 +356,7 @@ public final class ChatFragment extends Fragment {
     gateParams.setMargins(dp(16), dp(16), dp(16), dp(16));
     sessionOverlay.addView(sessionGate, gateParams);
     root.addView(sessionOverlay, new FrameLayout.LayoutParams(-1, -1));
+    buildRoomDrawer();
     content.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
@@ -740,6 +741,95 @@ public final class ChatFragment extends Fragment {
     d.show();
   }
 
+  private void buildRoomDrawer() {
+    drawerOverlay = new FrameLayout(getActivity());
+    drawerOverlay.setVisibility(View.GONE);
+    View scrim = new View(getActivity());
+    scrim.setBackgroundColor(0x550f1710);
+    scrim.setOnClickListener(v -> closeRoomDrawer());
+    drawerOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+    drawerPanel = vertical();
+    drawerPanel.setPadding(dp(20), dp(24), dp(18), dp(20));
+    drawerPanel.setBackground(shape(bg, 0));
+    drawerPanel.setElevation(dp(12));
+    TextView brand = text("轻聊", 22, ink);
+    brand.setTypeface(null, Typeface.BOLD);
+    drawerPanel.addView(brand);
+    TextView hint = text("房间与成员", 13, muted);
+    LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
+    hp.topMargin = dp(3);
+    drawerPanel.addView(hint, hp);
+    TextView roomCard = text("", 14, ink);
+    roomCard.setId(View.generateViewId());
+    roomCard.setPadding(dp(14), dp(14), dp(14), dp(14));
+    roomCard.setBackground(shape(pale, 18));
+    LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+    rp.topMargin = dp(20);
+    drawerPanel.addView(roomCard, rp);
+    drawerPanel.setTag(roomCard);
+    addDrawerAction("公共大厅", () -> switchRoom("lobby"));
+    addDrawerAction("通过房号加入", () -> { closeRoomDrawer(); joinDialog(""); });
+    addDrawerAction("创建私密房间", () -> { closeRoomDrawer(); createDialog(); });
+    addDrawerAction("在线成员", () -> { closeRoomDrawer(); showMembers(); });
+    addDrawerAction("复制房间链接", () -> { closeRoomDrawer(); shareRoom(); });
+    addDrawerAction("更改昵称", () -> { closeRoomDrawer(); nicknameDialog(false); });
+    TextView footer = text("聊天与房间操作", 12, muted);
+    LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
+    fp.topMargin = dp(18);
+    drawerPanel.addView(footer, fp);
+    ScrollView drawerScroll = new ScrollView(getActivity());
+    drawerScroll.setFillViewport(true);
+    drawerScroll.addView(drawerPanel, new ScrollView.LayoutParams(-1, -2));
+    FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+        Math.min(dp(320), getResources().getDisplayMetrics().widthPixels - dp(48)), -1, Gravity.START);
+    drawerOverlay.addView(drawerScroll, panelParams);
+    root.addView(drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
+    refreshRoomDrawer();
+  }
+
+  private void addDrawerAction(String label, Runnable action) {
+    Button b = button(label, action);
+    b.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+    b.setPadding(dp(14), dp(7), dp(12), dp(7));
+    b.setBackground(shape(bg, 14));
+    LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(48));
+    p.topMargin = dp(3);
+    drawerPanel.addView(b, p);
+  }
+
+  private void refreshRoomDrawer() {
+    if (drawerPanel == null) return;
+    View view = drawerPanel.getTag() instanceof View ? (View) drawerPanel.getTag() : null;
+    if (view instanceof TextView) {
+      ((TextView) view).setText((room.equals("lobby") ? "公共大厅" : "私密房间  ·  " + room)
+          + "\n" + members.length() + " 人在线\n轻触标题复制房间链接");
+      view.setOnClickListener(v -> { closeRoomDrawer(); shareRoom(); });
+    }
+  }
+
+  private void openRoomDrawer() {
+    if (drawerOverlay != null) {
+      refreshRoomDrawer();
+      drawerOverlay.setVisibility(View.VISIBLE);
+      drawerPanel.setTranslationX(-dp(12));
+      drawerPanel.animate().translationX(0).setDuration(140).start();
+    }
+  }
+
+  private void closeRoomDrawer() {
+    if (drawerOverlay != null) drawerOverlay.setVisibility(View.GONE);
+  }
+
+  private void startCallFromToolbar(String kind) {
+    closeRoomDrawer();
+    if (session == null) {
+      toast("请先设置昵称");
+      nicknameDialog(true);
+      return;
+    }
+    requestNativeCall(kind, null);
+  }
+
   private void roomMenu() {
     if (getActivity() == null) return;
     new AlertDialog.Builder(getActivity())
@@ -768,12 +858,12 @@ public final class ChatFragment extends Fragment {
                   break;
                 case 6:
                   new AlertDialog.Builder(getActivity())
-                      .setTitle("轻聊 0.1.6")
+                      .setTitle("轻聊 Android · 实验版")
                       .setMessage(
                           "原生 Android 测试版\n"
                               + "单 Activity / 自定义 Fragment 与 View / C++ 协议及消息核心\n\n"
                               + "支持文字、参考表情、房号私聊、图片与文件、语音录制和媒体播放。\n\n"
-                              + "语音/视频通话仍属实验：原生端已实现发布，并正在按现有信令接入远端接收；尚未通过设备端或真实双端通话验收。退到后台会清理本机通话与实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
+                              + "语音/视频通话仍属实验，尚未通过设备端或真实双端通话验收。退到后台会清理本机通话与实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
                               + "私密房间使用服务端口令授权，不是端到端加密。表情素材沿用网站，公开分发前需确认许可。")
                       .setPositiveButton("知道了", null)
                       .show();
@@ -1214,6 +1304,7 @@ public final class ChatFragment extends Fragment {
       };
 
   private void switchRoom(String rid) {
+    closeRoomDrawer();
     if (busy) {
       toast("请等待当前发送结束");
       return;
@@ -1409,7 +1500,8 @@ public final class ChatFragment extends Fragment {
     boolean bottom = list.getCount() == 0 || list.getLastVisiblePosition() >= list.getCount() - 2;
     heading.setText(roomName);
     subtitle.setText(
-        (room.equals("lobby") ? "轻聊" : ("房号 " + room)) + " · " + members.length() + " 人在线");
+        (room.equals("lobby") ? "公共大厅" : ("房号 " + room)) + " · " + members.length() + " 人在线");
+    if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     adapter.notifyDataSetChanged();
     if (follow && bottom && messages.length() > 0)
