@@ -1,0 +1,9 @@
+#pragma once
+#include <string>
+#include <stdexcept>
+#include <cstdint>
+namespace ql {
+inline void appendUtf8(std::string& out,uint32_t cp){if(cp<0x80)out.push_back(static_cast<char>(cp));else if(cp<0x800){out.push_back(static_cast<char>(0xc0|(cp>>6)));out.push_back(static_cast<char>(0x80|(cp&63)));}else if(cp<0x10000){out.push_back(static_cast<char>(0xe0|(cp>>12)));out.push_back(static_cast<char>(0x80|((cp>>6)&63)));out.push_back(static_cast<char>(0x80|(cp&63)));}else{out.push_back(static_cast<char>(0xf0|(cp>>18)));out.push_back(static_cast<char>(0x80|((cp>>12)&63)));out.push_back(static_cast<char>(0x80|((cp>>6)&63)));out.push_back(static_cast<char>(0x80|(cp&63)));}}
+inline std::string utf8(const std::u16string& s){std::string out;for(size_t i=0;i<s.size();i++){uint32_t cp=s[i];if(cp>=0xd800&&cp<=0xdbff){if(i+1>=s.size()||s[i+1]<0xdc00||s[i+1]>0xdfff)throw std::runtime_error("文字含不完整的字符");cp=0x10000+((cp-0xd800)<<10)+(s[++i]-0xdc00);}else if(cp>=0xdc00&&cp<=0xdfff)throw std::runtime_error("文字含不完整的字符");appendUtf8(out,cp);}return out;}
+inline std::u16string utf16(const std::string& s){std::u16string out;for(size_t i=0;i<s.size();){uint32_t c=static_cast<unsigned char>(s[i++]),cp;size_t more;if(c<0x80){cp=c;more=0;}else if(c>=0xc2&&c<0xe0){cp=c&31;more=1;}else if(c>=0xe0&&c<0xf0){cp=c&15;more=2;}else if(c>=0xf0&&c<=0xf4){cp=c&7;more=3;}else throw std::runtime_error("UTF-8 编码无效");if(i+more>s.size())throw std::runtime_error("UTF-8 编码不完整");for(size_t k=0;k<more;k++){unsigned char b=s[i++];if((b&0xc0)!=0x80)throw std::runtime_error("UTF-8 编码无效");cp=(cp<<6)|(b&63);}if((more==1&&cp<0x80)||(more==2&&cp<0x800)||(more==3&&cp<0x10000)||cp>0x10ffff||(cp>=0xd800&&cp<=0xdfff))throw std::runtime_error("UTF-8 编码无效");if(cp<=0xffff)out.push_back(static_cast<char16_t>(cp));else{cp-=0x10000;out.push_back(static_cast<char16_t>(0xd800+(cp>>10)));out.push_back(static_cast<char16_t>(0xdc00+(cp&1023)));}}return out;}
+}

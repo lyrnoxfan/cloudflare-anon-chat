@@ -1,0 +1,7 @@
+.gradle/
+**/build/
+**/.cxx/
+.native-tests/
+local.properties
+*.jks
+*.keystore
