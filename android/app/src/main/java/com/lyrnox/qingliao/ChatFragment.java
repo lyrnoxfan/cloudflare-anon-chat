@@ -627,7 +627,7 @@ public final class ChatFragment extends Fragment {
                   break;
                 case 5:
                   new AlertDialog.Builder(getActivity())
-                      .setTitle("轻聊 0.1.0")
+                      .setTitle("轻聊 0.1.1")
                       .setMessage(
                           "原生 Android 测试版\n"
                               + "单 Activity / 自定义 Fragment 与 View / C++ 消息校验与排序核心\n\n"
