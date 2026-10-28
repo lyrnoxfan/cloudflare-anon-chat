@@ -64,3 +64,21 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 - App/source commit: `5714551ca502df3810f2580a2fcd1a1faf00b94e` on `main`; the APK was built from the identical Android source tree immediately before this commit. The following documentation-only commit records these receipts.
 - APK: `com.lyrnox.qingliao`, version 0.1.4 / versionCode 5, minSdk 26, targetSdk 35; 4,554,110 bytes; SHA-256 `19c2203524962c09b696b7dcb4efafdfe1235bb7f4552ecda30029287a3ba79e`. `apksigner verify --verbose --print-certs` confirms APK Signature Scheme v2; signer is the Android Debug certificate, not a release key. Native libraries: `arm64-v8a` and `x86_64`.
 - The matching source archive is assembled from this Android source revision; APK and Android source package are attached separately. AndroidTest APK is 23,781 bytes and was compiled but not installed/executed.
+
+## 0.1.5 原生纯文本发送/接收垂直切片 — 2026-10-28
+
+- 基线为 `main` 的 0.1.4 源码提交 `39ac576`。核对仓库已有的服务端 `POST /api/r/{room}/send` 契约：JSON `{text, clientId}`，成功 `{message}`；返回消息包含 `id`、`nickname`、`client_id`、`kind`、`text`、`created`、`mine`、`deleted`。沿用既有真实 WebSocket `message` 事件与 `/history` 恢复路线；不访问线上服务。
+- 新增 `MessageProtocol` 原生边界：Java/OkHttp 仅处理 HTTPS、Cookie 和原始状态码/响应体；C++ `Engine` 校验 HTTP 状态及 JSON 消息结构、房间代际、消息 ID、昵称、幂等 `client_id`、文本、时间、类型、发送者归属和删除状态。只有通过验证的成功响应才合并进 C++ 消息状态，UI 随后从 native snapshot 更新；重复 WebSocket 回执由既有 ID 去重，接收消息走既有 native event 合并路径。失败和结构无效响应不会清空输入或污染消息状态。客户端仍由 Java 管理网络与生命周期，未把 TLS/Android 能力危险地挪进 C++。
+- 增加主机回归覆盖请求正规化、合法响应合并及顺序/实时重复去重、收到他人消息、client_id 不匹配、非 2xx 401、畸形成功响应及切房后的过期响应拒绝。GCC 12 编译启用 `-Wall -Wextra -Werror` 和 ASan/UBSan；构建成功，测试可执行文件报告 64 native assertions passed，无 sanitizer 诊断。此构建环境没有 `ctest` 命令，故这里只报告直接运行的完整测试二进制，不声称 CTest。
+- Android 本地模拟传输 instrumentation 包含 `/api/r/lobby/send` 成功、native snapshot 展示已发送消息、WebSocket 收到消息、401 及畸形 200 不改状态场景。构建成功不等于 instrumentation 已运行。本机 `adb devices -l` 为空，无可用模拟器/设备；没有真实安装、运行、UI 截图或线上聊天 E2E 验收。
+- Android Gradle 构建/lint、debug 签名、包元数据、ABI、APK hash、匹配源码归档及精确应用源提交将在下方 receipts 中记录。没有触发 GitHub Actions、没有 VPS、没有访问线上服务，也没有部署/发布。
+- 整体网页 UI 对齐、完整聊天室功能回归、显著扩大 C++ 业务核心、真实语音/视频通话仍未完成。
+
+### 0.1.5 build receipts
+
+- App source commit: `1b705d1268b2bfaae2de2e33ea76c58792f25d2b` on `main`. This commit contains the app implementation and instrumentation; the following main commit is documentation-only.
+- Build command: `./gradlew --no-daemon --max-workers=2 assembleDebug assembleDebugAndroidTest lintDebug`; Gradle 8.9, JDK 17.0.20.1, Android compile/target SDK 35, NDK 27.2.12479018, CMake 3.22.1. Build succeeded (71 tasks; 19 executed, 52 up-to-date), app and AndroidTest APK packaged, lint succeeded with no errors. Android instrumentation was compiled, not run.
+- APK: `com.lyrnox.qingliao`, version 0.1.5 / versionCode 6, minSdk 26, targetSdk 35; 5,841,300 bytes. SHA-256 `165adc3f5dc61957a6cc891c8fddb23fcf6a73e2506db3937ab661c6cf8690d6`. `apksigner verify --verbose --print-certs` verified APK Signature Scheme v2; signer is Android Debug (`CN=Android Debug, O=Android, C=US`), not a release key. Included ABIs: `arm64-v8a`, `x86_64`.
+- AndroidTest APK: 17,014 bytes; SHA-256 `8e27c72d367f6b57d73b81d97626432881bac96cc1e51cc3ec007ca01d371428`. It was built but not installed or run.
+- Host C++ regression: GCC 12.2, CMake 3.22.1, `-Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer`; build succeeded and direct test executable reported 64 native assertions passed. This computer does not have `ctest`; no CTest claim is made.
+- Runtime boundary: `/home/user/android-sdk/platform-tools/adb devices -l` returned no attached devices, `/dev/kvm` is absent, and no Android emulator executable is installed. The APK was not installed/launched; Android JNI instrumentation and actual chat service E2E remain unverified. No live endpoint was accessed, no Cloudflare service/config/data was changed, no VPS used, no GitHub Actions or Release triggered, and nothing deployed.
