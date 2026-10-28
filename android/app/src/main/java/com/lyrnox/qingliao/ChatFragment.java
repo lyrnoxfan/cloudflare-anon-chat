@@ -2009,6 +2009,13 @@ public final class ChatFragment extends Fragment {
         if (kind.equals("audio")) {
           card.addView(infoRow, new LinearLayout.LayoutParams(-1, -2));
           card.setOnClickListener(v -> playInlineAudio(m, card));
+        } else if (kind.equals("file")) {
+          card.addView(infoRow, new LinearLayout.LayoutParams(0, -2, 1f));
+          Button save = button("保存", () -> openMedia(m));
+          save.setTextSize(12);
+          save.setContentDescription("保存文件：" + m.optString("filename", "文件"));
+          card.addView(save, new LinearLayout.LayoutParams(dp(62), dp(38)));
+          card.setOnClickListener(v -> openMedia(m));
         } else {
           card.addView(infoRow);
           card.setOnClickListener(v -> openMedia(m));
@@ -2606,16 +2613,7 @@ public final class ChatFragment extends Fragment {
             options.inJustDecodeBounds = false;
             Bitmap image = BitmapFactory.decodeFile(f.getAbsolutePath(), options);
             if (image == null) throw new IOException("图片无法解码");
-            ImageView view = new ImageView(getActivity());
-            view.setImageBitmap(image);
-            view.setAdjustViewBounds(true);
-            view.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            new AlertDialog.Builder(getActivity())
-                .setTitle(name)
-                .setView(view)
-                .setPositiveButton("关闭", null)
-                .setNeutralButton("保存", (d, w) -> saveFile(f, name, m.optString("mime")))
-                .show();
+            showImageLightbox(image, name, f, m.optString("mime"));
           } else if (kind.equals("audio")) {
             stopPlayer();
             player = new MediaPlayer();
@@ -2640,27 +2638,157 @@ public final class ChatFragment extends Fragment {
                 .setOnDismissListener(d -> stopPlayer())
                 .show();
           } else if (kind.equals("video")) {
-            VideoView video = new VideoView(getActivity());
-            video.setVideoURI(Uri.fromFile(f));
-            MediaController controls = new MediaController(getActivity());
-            video.setMediaController(controls);
-            video.setOnPreparedListener(p -> video.start());
-            video.setOnErrorListener(
-                (p, a, b) -> {
-                  toast("此视频编码暂不支持，可保存后播放");
-                  return true;
-                });
-            AlertDialog d =
-                new AlertDialog.Builder(getActivity())
-                    .setTitle(name)
-                    .setView(video)
-                    .setPositiveButton("关闭", null)
-                    .setNeutralButton("保存", (x, w) -> saveFile(f, name, m.optString("mime")))
-                    .create();
-            d.setOnDismissListener(x -> video.stopPlayback());
-            d.show();
+            showVideoViewer(f, name, m.optString("mime"));
           } else saveFile(f, name, m.optString("mime"));
         });
+  }
+
+  private void showImageLightbox(Bitmap image, String name, File file, String mime) {
+    Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+    LinearLayout page = vertical();
+    page.setBackgroundColor(Color.BLACK);
+    LinearLayout toolbar = new LinearLayout(getActivity());
+    toolbar.setGravity(Gravity.CENTER_VERTICAL);
+    toolbar.setPadding(dp(12), dp(8), dp(12), dp(8));
+    TextView title = text(name, 14, Color.WHITE);
+    title.setMaxLines(1);
+    title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+    toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1f));
+    Button save = button("保存", () -> saveFile(file, name, mime));
+    save.setContentDescription("保存图片");
+    toolbar.addView(save, new LinearLayout.LayoutParams(dp(64), dp(42)));
+    Button close = button("关闭", dialog::dismiss);
+    close.setContentDescription("关闭图片预览");
+    LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(64), dp(42));
+    closeParams.leftMargin = dp(6);
+    toolbar.addView(close, closeParams);
+    page.addView(toolbar, new LinearLayout.LayoutParams(-1, -2));
+    ZoomImageView view = new ZoomImageView(getActivity());
+    view.setImageBitmap(image);
+    view.setContentDescription("图片全屏预览，可双指缩放：" + name);
+    page.addView(view, new LinearLayout.LayoutParams(-1, 0, 1f));
+    dialog.setContentView(page);
+    Window window = dialog.getWindow();
+    if (window != null) {
+      window.setLayout(-1, -1);
+      window.setBackgroundDrawableResource(android.R.color.black);
+      window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    dialog.setOnDismissListener(d -> image.recycle());
+    dialog.show();
+    if (window != null) window.setLayout(-1, -1);
+  }
+
+  private final class ZoomImageView extends ImageView {
+    private final Matrix matrix = new Matrix();
+    private final ScaleGestureDetector scaleDetector;
+    private float baseScale = 1f, userScale = 1f, lastX, lastY;
+
+    ZoomImageView(Context context) {
+      super(context);
+      setScaleType(ScaleType.MATRIX);
+      scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        @Override public boolean onScale(ScaleGestureDetector detector) {
+          float next = Math.max(1f, Math.min(5f, userScale * detector.getScaleFactor()));
+          float factor = next / userScale;
+          userScale = next;
+          matrix.postScale(factor, factor, detector.getFocusX(), detector.getFocusY());
+          setImageMatrix(matrix);
+          return true;
+        }
+      });
+    }
+
+    @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+      super.onSizeChanged(w, h, oldw, oldh);
+      Drawable d = getDrawable();
+      if (d == null || w <= 0 || h <= 0) return;
+      float dw = Math.max(1, d.getIntrinsicWidth()), dh = Math.max(1, d.getIntrinsicHeight());
+      baseScale = Math.min(w / dw, h / dh);
+      userScale = 1f;
+      matrix.reset();
+      matrix.postScale(baseScale, baseScale);
+      matrix.postTranslate((w - dw * baseScale) / 2f, (h - dh * baseScale) / 2f);
+      setImageMatrix(matrix);
+    }
+
+    @Override public boolean onTouchEvent(android.view.MotionEvent event) {
+      scaleDetector.onTouchEvent(event);
+      switch (event.getActionMasked()) {
+        case MotionEvent.ACTION_DOWN:
+          lastX = event.getX();
+          lastY = event.getY();
+          return true;
+        case MotionEvent.ACTION_MOVE:
+          if (!scaleDetector.isInProgress() && event.getPointerCount() == 1) {
+            float dx = event.getX() - lastX, dy = event.getY() - lastY;
+            if (userScale > 1f) {
+              matrix.postTranslate(dx, dy);
+              setImageMatrix(matrix);
+            }
+            lastX = event.getX();
+            lastY = event.getY();
+          }
+          return true;
+        case MotionEvent.ACTION_UP:
+        case MotionEvent.ACTION_CANCEL:
+          performClick();
+          return true;
+        default:
+          return true;
+      }
+    }
+
+    @Override public boolean performClick() {
+      super.performClick();
+      return true;
+    }
+  }
+
+  private void showVideoViewer(File file, String name, String mime) {
+    Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+    FrameLayout page = new FrameLayout(getActivity());
+    page.setBackgroundColor(Color.BLACK);
+    VideoView video = new VideoView(getActivity());
+    video.setVideoURI(Uri.fromFile(file));
+    FrameLayout.LayoutParams videoParams = new FrameLayout.LayoutParams(-1, -1);
+    page.addView(video, videoParams);
+    MediaController controls = new MediaController(getActivity());
+    video.setMediaController(controls);
+    LinearLayout toolbar = new LinearLayout(getActivity());
+    toolbar.setGravity(Gravity.CENTER_VERTICAL);
+    toolbar.setPadding(dp(12), dp(8), dp(12), dp(8));
+    toolbar.setBackgroundColor(0x99000000);
+    TextView title = text(name, 14, Color.WHITE);
+    title.setMaxLines(1);
+    title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+    toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1f));
+    Button save = button("保存", () -> saveFile(file, name, mime));
+    save.setContentDescription("保存视频");
+    toolbar.addView(save, new LinearLayout.LayoutParams(dp(64), dp(42)));
+    Button close = button("关闭", dialog::dismiss);
+    close.setContentDescription("关闭视频预览");
+    LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(64), dp(42));
+    closeParams.leftMargin = dp(6);
+    toolbar.addView(close, closeParams);
+    FrameLayout.LayoutParams toolbarParams = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+    page.addView(toolbar, toolbarParams);
+    dialog.setContentView(page);
+    Window window = dialog.getWindow();
+    if (window != null) {
+      window.setLayout(-1, -1);
+      window.setBackgroundDrawableResource(android.R.color.black);
+      window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    video.setOnPreparedListener(p -> video.start());
+    video.setOnErrorListener(
+        (p, a, b) -> {
+          toast("此视频编码暂不支持，可保存后播放");
+          return true;
+        });
+    dialog.setOnDismissListener(d -> video.stopPlayback());
+    dialog.show();
+    if (window != null) window.setLayout(-1, -1);
   }
 
   private void saveFile(File f, String name, String mime) {
