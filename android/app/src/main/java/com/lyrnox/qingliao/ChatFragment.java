@@ -31,7 +31,7 @@ public final class ChatFragment extends Fragment {
   private ChatNet net;
   private WebSocket socket;
   private int generation = 0, retries = 0;
-  private boolean started = false, dead = false, busy = false, historyBusy = false;
+  private boolean started = false, dead = false, busy = false, historyBusy = false, sessionExpired = false;
   private String room = "lobby",
       roomName = "公共大厅",
       nickname = "",
@@ -45,7 +45,11 @@ public final class ChatFragment extends Fragment {
       members = new JSONArray(),
       emojiData = new JSONArray();
   private final Map<String, Drawable> emojiDrawables = new HashMap<>();
-  private LinearLayout root, emojiPanel;
+  private LinearLayout root, emojiPanel, sessionGate;
+  private FrameLayout chatArea;
+  private EditText gateName;
+  private TextView gateError;
+  private Button gateEnter;
   private ListView list;
   private TextView heading, subtitle, statusView, recordView;
   private EditText input;
@@ -96,11 +100,12 @@ public final class ChatFragment extends Fragment {
     return Math.round(n * getResources().getDisplayMetrics().density);
   }
 
-  private final int bg = Color.rgb(250, 251, 247),
-      ink = Color.rgb(38, 54, 36),
-      green = Color.rgb(197, 220, 183),
-      pale = Color.rgb(233, 239, 227),
-      muted = Color.rgb(111, 125, 106);
+  private final int bg = Color.rgb(248, 250, 243),
+      ink = Color.rgb(37, 45, 37),
+      green = Color.rgb(82, 107, 64),
+      pale = Color.rgb(234, 240, 227),
+      mine = Color.rgb(215, 229, 188),
+      muted = Color.rgb(112, 120, 109);
 
   private GradientDrawable shape(int color, int radius) {
     GradientDrawable d = new GradientDrawable();
@@ -183,8 +188,15 @@ public final class ChatFragment extends Fragment {
     titles.addView(heading);
     titles.addView(subtitle);
     titles.setOnClickListener(v -> shareRoom());
+    TextView roomMark = text("聊", 13, green);
+    roomMark.setGravity(Gravity.CENTER);
+    roomMark.setBackground(shape(pale, 22));
+    header.addView(roomMark, new LinearLayout.LayoutParams(dp(34), dp(34)));
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
-    header.addView(button("匿名", () -> nicknameDialog(false)));
+    Button identity = button("匿名", () -> nicknameDialog(false));
+    identity.setTextSize(11);
+    identity.setPadding(dp(9), dp(5), dp(9), dp(5));
+    header.addView(identity);
     header.addView(button("⋯", this::roomMenu), new LinearLayout.LayoutParams(dp(48), dp(44)));
     root.addView(header);
     statusView = text(status, 12, muted);
@@ -193,6 +205,7 @@ public final class ChatFragment extends Fragment {
     statusView.setOnClickListener(
         v -> {
           if (session != null) enter();
+          else showSessionGate();
         });
     root.addView(statusView);
     older = button("加载更早消息", () -> history(true));
@@ -207,7 +220,44 @@ public final class ChatFragment extends Fragment {
     list.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
     adapter = new MessageAdapter();
     list.setAdapter(adapter);
-    root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1));
+    chatArea = new FrameLayout(getActivity());
+    chatArea.addView(list, new FrameLayout.LayoutParams(-1, -1));
+    sessionGate = vertical();
+    sessionGate.setGravity(Gravity.CENTER_HORIZONTAL);
+    sessionGate.setPadding(dp(24), dp(26), dp(24), dp(24));
+    sessionGate.setBackground(shape(bg, 28));
+    sessionGate.setElevation(dp(4));
+    TextView gateMark = text("轻聊", 12, green);
+    gateMark.setGravity(Gravity.CENTER);
+    gateMark.setBackground(shape(pale, 24));
+    sessionGate.addView(gateMark, new LinearLayout.LayoutParams(dp(52), dp(34)));
+    TextView gateTitle = text("欢迎来到轻聊", 22, ink);
+    gateTitle.setTypeface(null, Typeface.BOLD);
+    LinearLayout.LayoutParams gateTitleParams = new LinearLayout.LayoutParams(-1, -2);
+    gateTitleParams.topMargin = dp(16);
+    sessionGate.addView(gateTitle, gateTitleParams);
+    TextView gateCopy = text("取个昵称，就可以进入公共大厅聊天。", 13, muted);
+    gateCopy.setPadding(0, dp(5), 0, dp(12));
+    sessionGate.addView(gateCopy);
+    gateName = field("昵称（最多 32 字）", false);
+    gateName.setText(nickname);
+    gateName.setFilters(new InputFilter[] {new InputFilter.LengthFilter(32)});
+    sessionGate.addView(gateName, new LinearLayout.LayoutParams(-1, -2));
+    gateError = text("", 12, green);
+    gateError.setVisibility(View.GONE);
+    sessionGate.addView(gateError);
+    gateEnter = button("进入聊天室", this::submitGateNickname);
+    gateEnter.setTextSize(15);
+    gateEnter.setTypeface(null, Typeface.BOLD);
+    gateEnter.setBackground(shape(mine, 18));
+    LinearLayout.LayoutParams gateButtonParams = new LinearLayout.LayoutParams(-1, dp(50));
+    gateButtonParams.topMargin = dp(16);
+    sessionGate.addView(gateEnter, gateButtonParams);
+    sessionGate.setVisibility(View.GONE);
+    FrameLayout.LayoutParams gateParams = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
+    gateParams.setMargins(dp(16), dp(16), dp(16), dp(16));
+    chatArea.addView(sessionGate, gateParams);
+    root.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
     ScrollView sc = new ScrollView(getActivity());
@@ -332,6 +382,11 @@ public final class ChatFragment extends Fragment {
     subtitle = null;
     statusView = null;
     emojiPanel = null;
+    chatArea = null;
+    sessionGate = null;
+    gateName = null;
+    gateError = null;
+    gateEnter = null;
     super.onDestroyView();
   }
 
@@ -389,6 +444,53 @@ public final class ChatFragment extends Fragment {
     if (statusView != null) statusView.setText(s);
   }
 
+  private void updateSessionGate() {
+    if (sessionGate == null || list == null) return;
+    boolean show = sessionExpired && session == null;
+    sessionGate.setVisibility(show ? View.VISIBLE : View.GONE);
+    list.setVisibility(show ? View.INVISIBLE : View.VISIBLE);
+    if (older != null && show) older.setVisibility(View.GONE);
+  }
+
+  private void showSessionGate() {
+    sessionExpired = true;
+    setStatus("会话过期，请重新输入昵称");
+    if (gateName != null && !gateName.hasFocus()) gateName.setText(nickname);
+    if (gateError != null) gateError.setVisibility(View.GONE);
+    updateSessionGate();
+  }
+
+  private void submitGateNickname() {
+    if (session == null && gateName != null && gateEnter != null) {
+      try {
+        JSONObject payload = core.run("session", "nickname", gateName.getText().toString());
+        gateEnter.setEnabled(false);
+        setStatus("正在进入轻聊…");
+        task(
+            () -> net.api("/api/session", payload),
+            value -> {
+              session = (JSONObject) value;
+              nickname = session.optString("nickname");
+              if (getActivity() != null)
+                getActivity().getPreferences(0).edit().putString("nickname", nickname).apply();
+              sessionExpired = false;
+              updateSessionGate();
+              if (gateEnter != null) gateEnter.setEnabled(true);
+              if (pendingLink != null) {
+                String rid = pendingLink;
+                pendingLink = null;
+                joinDialog(rid);
+              } else enter();
+            });
+      } catch (Exception e) {
+        if (gateError != null) {
+          gateError.setText(e.getMessage());
+          gateError.setVisibility(View.VISIBLE);
+        } else toast(e.getMessage());
+      }
+    }
+  }
+
   private void toast(String s) {
     if (getActivity() != null) Toast.makeText(getActivity(), s, Toast.LENGTH_LONG).show();
   }
@@ -397,14 +499,14 @@ public final class ChatFragment extends Fragment {
     busy = false;
     historyBusy = false;
     if (send != null) send.setEnabled(true);
+    if (gateEnter != null) gateEnter.setEnabled(true);
     String s = e.getMessage();
     if (e instanceof ChatNet.ApiError) {
       int code = ((ChatNet.ApiError) e).status;
       if (code == 401) {
         session = null;
         disconnect();
-        setStatus("会话过期，请重新输入昵称");
-        if (started) nicknameDialog(true);
+        showSessionGate();
         return;
       }
       if (code == 403) {
@@ -415,7 +517,10 @@ public final class ChatFragment extends Fragment {
       }
     }
     setStatus(s == null ? "网络请求失败，请重试" : s);
-    toast(status);
+    if (sessionExpired && gateError != null) {
+      gateError.setText(status);
+      gateError.setVisibility(View.VISIBLE);
+    } else toast(status);
   }
 
   private void restoreSession() {
@@ -425,6 +530,8 @@ public final class ChatFragment extends Fragment {
         value -> {
           session = (JSONObject) value;
           nickname = session.optString("nickname");
+          sessionExpired = false;
+          updateSessionGate();
           if (pendingLink != null) {
             String r = pendingLink;
             pendingLink = null;
@@ -434,6 +541,10 @@ public final class ChatFragment extends Fragment {
   }
 
   private void nicknameDialog(boolean required) {
+    if (required) {
+      showSessionGate();
+      return;
+    }
     if (getActivity() == null || nicknamePrompt != null && nicknamePrompt.isShowing()) return;
     EditText name = field("昵称（最多 32 字）", false);
     name.setText(nickname);
@@ -519,7 +630,7 @@ public final class ChatFragment extends Fragment {
                       .setTitle("轻聊 0.1.0")
                       .setMessage(
                           "原生 Android 测试版\n"
-                              + "单 Activity / 自定义 Fragment 与 View / C++ 消息核心\n\n"
+                              + "单 Activity / 自定义 Fragment 与 View / C++ 消息校验与排序核心\n\n"
                               + "支持文字、参考表情、房号私聊、图片与文件、语音录制和媒体播放。\n\n"
                               + "音视频实时通话尚未实现。退到后台会断开实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
                               + "私密房间使用服务端口令授权，不是端到端加密。表情素材沿用网站，公开分发前需确认许可。")
@@ -874,6 +985,7 @@ public final class ChatFragment extends Fragment {
 
   private void render(boolean follow) {
     if (root == null) return;
+    updateSessionGate();
     boolean bottom = list.getCount() == 0 || list.getLastVisiblePosition() >= list.getCount() - 2;
     heading.setText(roomName);
     subtitle.setText(

@@ -14,8 +14,8 @@ final class MessageBubbleView extends TextView {
     super(context);
     float density = getResources().getDisplayMetrics().density;
     radius = 21 * density;
-    paint.setColor(mine ? Color.rgb(197, 220, 183) : Color.rgb(233, 239, 227));
-    setTextColor(deleted ? Color.rgb(111, 125, 106) : Color.rgb(38, 54, 36));
+    paint.setColor(mine ? Color.rgb(215, 229, 188) : Color.rgb(234, 240, 227));
+    setTextColor(deleted ? Color.rgb(112, 120, 109) : Color.rgb(37, 45, 37));
     setTextSize(16);
     setPadding(
         Math.round(15 * density),
