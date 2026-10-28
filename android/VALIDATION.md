@@ -168,3 +168,11 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 
 - workflow/验证记录提交 `b0510c42fae95ed8ac185fbe70a83857102e1d8d` 已推送至 `main`。GitHub Actions `40699516995` 成功，checkout head SHA 与该提交完全一致；QA app、instrumentation APK、lint 及 artifact 上传均通过：[运行记录](https://github.com/lyrnoxfan/cloudflare-anon-chat/actions/runs/40699516995)。该提交仅包含 QA workflow、验证文档和模拟器证据图；应用代码仍来自前述 `826cf9c`。
 - CI APK 元数据：`com.lyrnox.qingliao.qa`，0.2.1-qa / versionCode 12；29,099,079 bytes。Actions artifact 中 SHA-256 `6ea4a713e9b18329bba876122161a1c2bf0167ca79a1684ff8d2b38cd6f37b70`，重新计算一致；v2 Debug 签名验证通过。配套 instrumentation APK SHA-256 `74259cbdc8c7d401ae574cfcb0a48460bb176c1c48fbeac2a767ccfc19211d98`。这是与生产 package ID 分开的 QA 包，非 release 签名。
+
+## 0.2.4 完整聊天对照与冻结源码集中 QA — 2026-10-28
+
+- 本轮应用源码以 `main` 的 `2220896bed5571ae20d4833b79a09e05e6527c06` 为基线，冻结并推送实现提交 `d237ada76e610bb8bab43a4513d347b5eb758538`。加入系统夜间主题映射与聊天视频内嵌播放/播放器生命周期清理，版本号 0.2.4 / code 15。`android/G29-PARITY.md` 逐项记录 Android/网页交互映射及未覆盖证据，避免把原生代码覆盖误作运行验收。
+- 实现阶段未运行 build/lint/instrumentation/Actions；全部代码提交冻结后集中运行 `ANDROID_HOME=/home/user/android-sdk ANDROID_SDK_ROOT=/home/user/android-sdk ./gradlew --no-daemon assembleDebug assembleQa assembleQaAndroidTest lintDebug lintQa`：BUILD SUCCESSFUL，114 tasks。debug/QA APK 与 AndroidTest APK 构建；两 flavor lint 通过。之后 C++ host test 使用 ASan/UBSan，CTest 1/1 通过；`git diff --check` 通过。日志在 `deliver/g29-final/qa.log`。仪器 APK 未在 Android 设备运行，本轮没有 50 项 JNI instrumentation 测试结果。
+- Debug APK `com.lyrnox.qingliao` 0.2.4/code15，29,131,991 bytes，SHA-256 `e3a7e4df8214dc3a5e20deb1edd31591bb789a17c5fc0ce17abbf73a8f80f474`；QA APK `com.lyrnox.qingliao.qa` 0.2.4-qa/code15，29,131,991 bytes，SHA-256 `e35d68d5450a46df469afca09a7e0b7d33e29b18093917c5c7f2bd3061e8e08a`；QA AndroidTest `com.lyrnox.qingliao.qa.test`，33,404 bytes，SHA-256 `e69e1e01a7ba52c1589d51883829b1941bd1dbe4379926f732acf13cb54a74be`。均为 Debug key；QA 使用隔离本地测试配置。`deliver/g29-final/` 同时包含 APK、源码和核对清单。
+- 设备尝试仍受环境限制：当前构建机没有 `/dev/kvm`；关闭硬件加速的 Android 9 模拟器未能启动并消失，ADB 请求超时。因此本轮未安装启动 APK，无界面截图，无 instrumentation 执行。先前冻结基线 `2220896` 的 QA build/lint、C++ sanitizer 和离线 50 项 JNI/mock 结果不是本提交的设备运行结果，不作本轮凭据。
+- 网页整体完全对齐、设备上的浅/深主题、窄屏交互、内嵌视频实际播放、真实服务消息/媒体及双设备音视频仍待 Android 真机/可用模拟器和真实服务验收。本次未部署 Cloudflare、未访问生产、未创建 Release；G29 未完成。

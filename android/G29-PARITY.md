@@ -37,3 +37,11 @@
 - 视频文件先下载再播放与网页内联流式播放的弱网/编码兼容差异。
 
 本次没有授权触达或部署 Cloudflare 生产环境；代码测试用隔离本地 fixture/离线检查，不构成真实服务验收。无设备证据时仍保持项目开放。
+
+### 0.2.4 冻结版本集中验收 — 2026-10-28
+
+- 应用实现冻结于 `d237ada76e610bb8bab43a4513d347b5eb758538`（基线 `2220896bed5571ae20d4833b79a09e05e6527c06`），并已推送 `main`。本轮代码补齐系统深色配色、聊天内视频播放及播放器清理；完整对应关系见上表。源码在测试前冻结；随后本轮只补验证记录与交付文件，没有改 app 代码。没有发布 Release、部署或访问 Cloudflare 生产。
+- 冻结源码的一次集中 QA：JDK 17 / Gradle 8.9 / SDK 35 / NDK 27.2.12479018 运行 `assembleDebug assembleQa assembleQaAndroidTest lintDebug lintQa`，BUILD SUCCESSFUL（114 tasks）；debug 与隔离 QA APK 均构建，QA instrumentation APK 已编译，debug/QA lint 通过。GCC/CMake C++ host test 在 ASan/UBSan 下 CTest 1/1 通过；`git diff --check` 通过。完整命令输出保存在 `deliver/g29-final/qa.log`。没有在设备运行 Android instrumentation；因此不把此前版本的 50 项断网 JNI/mock 检查算作本次冻结版测试。
+- Android UI 烟测仍未到聊天页。之前隔离模拟器启动卡在 System UI；后续构建环境无 `/dev/kvm`，关闭硬件加速的 Android 9 AVD 仍未启动且 ADB 请求超时。无本轮截图、安装运行或页面/视频视觉验收。设备/模拟器和真实服务的剩余边界见下文。
+- 本地 Debug APK：`com.lyrnox.qingliao`，`0.2.4` / versionCode 15，29,131,991 bytes，SHA-256 `e3a7e4df8214dc3a5e20deb1edd31591bb789a17c5fc0ce17abbf73a8f80f474`。隔离 QA APK：`com.lyrnox.qingliao.qa`，`0.2.4-qa` / versionCode 15，29,131,991 bytes，SHA-256 `e35d68d5450a46df469afca09a7e0b7d33e29b18093917c5c7f2bd3061e8e08a`。两者均为 Debug key 签名、非 Release。QA APK 使用本地测试配置，不作为线上安装版。Instrumentation APK `com.lyrnox.qingliao.qa.test`，33,404 bytes，SHA-256 `e69e1e01a7ba52c1589d51883829b1941bd1dbe4379926f732acf13cb54a74be`；仅确认编译成功，未运行。
+- 完整网页视觉/功能 parity、实机主题及布局、视频编解码/弱网、真实服务聊天及上传下载、相机/麦克风权限和双端 WebRTC 仍需 Android 设备与真实服务验收。代码覆盖不等于已实测；本次不能称为完整网页对齐版，G29 保持开放。
