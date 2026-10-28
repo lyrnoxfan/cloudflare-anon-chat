@@ -1,12 +1,11 @@
-name: Android debug APK
-# Manual only: no push, pull_request, release or tag trigger. Private-repository
-# runner usage may be billed; an owner should check allowance before dispatch.
+name: Android QA APK
+# Manual only: the QA applicationId is isolated from the installed production package.
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: android-debug-${{ github.ref }}
+  group: android-qa-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
@@ -28,26 +27,27 @@ jobs:
           set -euo pipefail
           test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
-      - name: Build and lint (not device acceptance)
+      - name: Build QA app, instrumentation APK and lint
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest lintDebug
-          sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/SHA256SUMS
-      - name: Upload debug APK and checksum
+          ./gradlew --no-daemon :app:assembleQa :app:assembleQaAndroidTest :app:lintQa
+          sha256sum app/build/outputs/apk/qa/app-qa.apk app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk > app/build/outputs/apk/qa/SHA256SUMS
+      - name: Upload isolated QA APKs and checksums
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: qingliao-debug-${{ github.sha }}
+          name: qingliao-qa-${{ github.sha }}
           path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/debug/SHA256SUMS
+            android/app/build/outputs/apk/qa/app-qa.apk
+            android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk
+            android/app/build/outputs/apk/qa/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
-      - name: Upload lint evidence
+      - name: Upload QA lint report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: qingliao-lint-${{ github.sha }}
-          path: android/app/build/reports/lint-results-debug.*
+          name: qingliao-qa-lint-${{ github.sha }}
+          path: android/app/build/reports/lint-results-qa.*
           if-no-files-found: warn
           retention-days: 14

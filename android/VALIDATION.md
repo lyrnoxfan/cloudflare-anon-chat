@@ -152,3 +152,14 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 - Local isolated Android 9 emulator UI smoke: installed only `com.lyrnox.qingliao.qa` (`0.2.0-qa`, versionCode 11) using `adb install -r`, launched it, and captured `qa-parity.png`. Airplane mode remained on and only the existing localhost reverse was configured. Confirmed original `com.lyrnox.qingliao` remained at 0.1.1 (versionCode 2); it was not modified or cleared. The user previously ran the 46-assertion `network=false` JNI instrumentation on this same base; this presentation-only change does not alter JNI or test logic, so that prior run is not presented as a post-change instrumentation run.
 - This is a focused parity improvement, not full website parity. Real site networking, media upload, camera/microphone, remote chat or dual-device calling were not exercised. The local mock only covers local session/lobby behavior. No production/Cloudflare services were accessed or changed.
 - QA APK SHA-256: `18cca8c8e0f8ff0593d28ffc24eb023ceafe16459960e0c597d5c454cc58a9c3`. This is built from the local QA flavor/config and is not the production-ID CI APK.
+
+## 0.2.1 网页交互对齐与隔离 QA 验证 — 2026-10-28
+
+- 应用源码提交 `826cf9cda84eba5eaed0b1855c406d4bad18d866`。Android 主界面补充了按日期的消息分隔、滚动离底后出现的“有新消息”回到底部提示、在线成员选择器以及将群聊/单聊目标写入通话开始请求的路由；此前房间抽屉、加入/创建房间、引用回复、消息分组与昵称颜色头像保留。相较网页完整交互面仍有缺项，不声称全功能或全视觉对齐。
+- 责任边界：Java/原生 Fragment 负责 HTTPS/WebSocket、Android 生命周期与原生界面；C++ Engine 负责已接入的会话/消息/调用载荷等验证与状态规则，JNI 连接两者。未迁移架构，也未改 C++ 源码。本次新增的交互回归断言覆盖日期标签及通话目标字段。
+- Java/JNI/C++ app 与 instrumentation APK 均成功构建；Android QA `lintQa` 无 error。命令为 `:app:assembleQa :app:assembleQaAndroidTest :app:lintQa`。C++ GCC 12、ASan/UBSan 主机测试在该工程版本验证为 CTest 1/1 通过；这些测试不替代 Android 运行验收。
+- 在授权隔离 Android 9 模拟器上只安装了测试 applicationId `com.lyrnox.qingliao.qa`（0.2.1-qa）及配套 `.qa.test` instrumentation 包；测试前移除了签名不匹配的旧 QA 包，不触碰 `com.lyrnox.qingliao` 0.1.1。飞行模式开启，测试明确使用 `network=false`，50 项 Android JNI assertions 通过；未进行真实网络/Cloudflare访问。
+- 模拟器运行后实际观察并保存两张截图：`android/evidence/qa-0.2.1/chat.png` 展示浅色聊天页、日期标签、消息分组和输入区；`android/evidence/qa-0.2.1/drawer.png` 展示房间/成员抽屉及操作项。这证明该 QA 包在该模拟器上的这些画面可见，不证明更广的页面覆盖或真实服务行为。
+- WebRTC 方面仅验证代码中的通话目标路由与 UI 可见控制；没有第二位真实成员/两台设备，也没有实际检查相机、麦克风采集、ICE 连通、远端视频/音频或双端通话。因此这些端到端能力仍未验收。昵称创建本次通过本地 mock 接口进入聊天；不是实际线上会话。
+- 应用代码提交与成功构建的初始 GitHub Actions workflow 分别为 `826cf9c` 与 run `40698261132`，但该 Actions 失败：旧 workflow 调用不存在的 `assembleDebugAndroidTest` Gradle task。随后修复 workflow 改为只构建隔离 QA app、QA instrumentation 与 lint，避免 CI 产物误用生产 applicationId；最终修复 workflow/验证文档提交及其 Actions 结果见本节追加记录。
+- `deliver/` 未加入版本控制，原有 0.1.1 APK/数据未修改；未部署 Cloudflare、未发布 GitHub Release。
