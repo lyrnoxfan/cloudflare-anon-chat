@@ -1,0 +1,12 @@
+Host Linux C++17 native engine, ASan/UBSan + -Wall -Wextra -Werror
+CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++
+CMAKE_CXX_FLAGS:STRING=-fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror
+Internal ctest changing into directory: /home/user/workspace/qingliao-android/android/.native-tests
+Test project /home/user/workspace/qingliao-android/android/.native-tests
+    Start 1: engine_tests
+1/1 Test #1: engine_tests .....................   Passed    0.07 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.07 sec
+26 native assertions passed

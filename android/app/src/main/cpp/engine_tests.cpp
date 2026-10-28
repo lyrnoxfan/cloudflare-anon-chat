@@ -1,0 +1,25 @@
+#include "engine.hpp"
+#include <cstdlib>
+#include "unicode.hpp"
+#include <iostream>
+using ql::J;
+int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"failed assertion "<<checks+1<<"\n";std::exit(1);}checks++;};auto rejects=[&](J j){try{e.command(j);return false;}catch(...){return true;}};
+ check(e.command({{"op","reset"},{"room","lobby"}})["room"]=="lobby");
+ check(rejects({{"op","reset"},{"room","../bad"}}));check(rejects({{"op","reset"},{"room","房间"}}));
+ check(e.command({{"op","join"},{"password","a"}})["password"]=="a");check(rejects({{"op","join"},{"password"," "}}));
+ check(ql::Engine::units("你好😀")==4);check(rejects({{"op","session"},{"nickname",std::string(33,'a')}}));
+ check(e.command({{"op","send"},{"text","\"你好😀\n"},{"clientId","id-1"}})["text"]=="\"你好😀");
+ check(rejects({{"op","send"},{"text",std::string(4001,'x')},{"clientId","id"}}));
+ J a={{"id","b"},{"created",20},{"text","later"},{"deleted",0}},b={{"id","a"},{"created",10},{"text","first"},{"deleted",0}};
+ e.command({{"op","history"},{"messages",J::array({a,b,a})}});auto snap=e.command({{"op","snapshot"}});check(snap["messages"].size()==2);check(snap["messages"][0]["id"]=="a");
+ e.command({{"op","event"},{"event",{{"type","deleted"},{"id","a"}}}});e.command({{"op","history"},{"messages",J::array({b})}});check(e.command({{"op","snapshot"}})["messages"][0]["deleted"]==1);
+ e.command({{"op","event"},{"event",{{"type","deleted"},{"id","unknown"}}}});e.command({{"op","history"},{"messages",J::array({{{"id","unknown"},{"created",30},{"text","stale"}}})}});check(e.command({{"op","snapshot"}})["messages"][2]["deleted"]==1);
+ check(e.command({{"op","retry"},{"attempt",20}})["delay"]==30000);
+ J u={{"op","upload"},{"size",100},{"mime","image/png"},{"filename","图.png"},{"clientId","id"}};check(e.command(u)["kind"]=="image");u["size"]=11*1024*1024;check(rejects(u));u["mime"]="application/octet-stream";check(e.command(u)["kind"]=="file");u["size"]=0;check(rejects(u));
+ e.command({{"op","reset"},{"room","1234567890"}});check(e.command({{"op","snapshot"}})["messages"].empty());
+ check(ql::utf8(ql::utf16("中文😀\n"))=="中文😀\n");
+ for(auto bad:std::vector<std::string>{std::string("\xc0\x80",2),std::string("\xed\xa0\x80",3),std::string("\xf4\x90\x80\x80",4),std::string("\xf0",1)}){bool failed=false;try{ql::utf16(bad);}catch(...){failed=true;}check(failed);}
+ bool failed=false;try{ql::utf8(std::u16string(1,0xd800));}catch(...){failed=true;}check(failed);
+ check(ql::utf8(std::u16string(1,0))==std::string(1,0));
+ std::cout<<checks<<" native assertions passed\n";
+}
