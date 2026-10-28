@@ -14,7 +14,7 @@ import okhttp3.*;
 import org.json.*;
 
 final class ChatNet implements Closeable {
-  static final String BASE = "https://chat.lyrnox.com";
+  static final String BASE = BuildConfig.CHAT_BASE;
   final OkHttpClient client;
   final Context context;
   final boolean durable;
@@ -47,7 +47,7 @@ final class ChatNet implements Closeable {
             .cookieJar(
                 new CookieJar() {
                   public void saveFromResponse(HttpUrl url, List<Cookie> list) {
-                    if (!url.host().equals("chat.lyrnox.com")) return;
+                    if (!url.host().equals(HttpUrl.get(BASE).host())) return;
                     synchronized (cookies) {
                       for (Cookie c : list)
                         if (c.name().equals("chat")) {
@@ -213,7 +213,7 @@ final class ChatNet implements Closeable {
   WebSocket socket(String room, WebSocketListener l) {
     return client.newWebSocket(
         new Request.Builder()
-            .url(BASE.replace("https:", "wss:") + "/api/r/" + room + "/ws")
+            .url(BASE.replace("https:", "wss:").replace("http:", "ws:") + "/api/r/" + room + "/ws")
             .header("Origin", BASE)
             .build(),
         l);
@@ -222,8 +222,8 @@ final class ChatNet implements Closeable {
   private String allowed(String url, boolean upload) throws IOException {
     HttpUrl u = HttpUrl.parse(url.startsWith("/") ? BASE + url : url);
     if (u == null
-        || !u.isHttps()
-        || (!u.host().equals("chat.lyrnox.com")
+        || !(u.isHttps() || (BuildConfig.DEBUG && u.scheme().equals("http") && u.host().equals(HttpUrl.get(BASE).host())))
+        || (!(u.host().equals(HttpUrl.get(BASE).host()))
             && !(upload && u.host().endsWith(".r2.cloudflarestorage.com"))))
       throw new IOException("媒体地址不受信任");
     return u.toString();

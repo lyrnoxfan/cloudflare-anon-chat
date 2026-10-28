@@ -39,6 +39,12 @@ public final class NativeInstrumentation extends Instrumentation {
       check(!MessageGrouping.sameGroup(false, "小青", now, false, "小青", now + 300_000), "five-minute boundary ends group");
       check(!MessageGrouping.sameGroup(false, "小青", now, false, "小蓝", now + 1), "different speaker ends group");
       check(!MessageGrouping.sameGroup(false, "小青", now, true, "小青", now + 1), "mine status ends group");
+      check("今天".equals(MessageGrouping.dayLabel(now, now)), "message date divider labels today");
+      check("昨天".equals(MessageGrouping.dayLabel(now - 24L * 60 * 60 * 1000, now)), "message date divider labels yesterday");
+      JSONObject targetedCall = NativeCallSession.startPayload("video", "guest-2");
+      check("video".equals(targetedCall.getString("kind")) && "guest-2".equals(targetedCall.getString("target")), "direct call uses selected member id");
+      JSONObject groupCallPayload = NativeCallSession.startPayload("audio", "");
+      check(!groupCallPayload.has("target"), "group call omits direct target");
       JSONObject expiredGate = core.run("gate", "expired", true, "hasSession", false);
       check(expiredGate.getBoolean("show") && !expiredGate.getBoolean("contentVisible"), "expired gate hides chat");
       JSONObject activeGate = core.run("gate", "expired", false, "hasSession", true);

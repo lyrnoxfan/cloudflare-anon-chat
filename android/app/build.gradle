@@ -1,6 +1,7 @@
 plugins { id 'com.android.application' }
 android {
  namespace 'com.lyrnox.qingliao'
+ testBuildType 'qa'
  compileSdk 35
  buildToolsVersion '35.0.0'
  ndkVersion '27.2.12479018'
@@ -8,14 +9,25 @@ android {
   applicationId 'com.lyrnox.qingliao'
   minSdk 26
   targetSdk 35
-  versionCode 11
-  versionName '0.2.0'
+  versionCode 12
+  versionName '0.2.1'
   testInstrumentationRunner 'com.lyrnox.qingliao.NativeInstrumentation'
   ndk { abiFilters 'arm64-v8a', 'x86_64' }
   externalNativeBuild { cmake { cppFlags '-std=c++17 -Wall -Wextra -Werror' } }
  }
  externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
- buildTypes { release { minifyEnabled false } }
+ buildFeatures { buildConfig true }
+ buildTypes {
+  debug { buildConfigField 'String', 'CHAT_BASE', '"https://chat.lyrnox.com"' }
+  release { minifyEnabled false; buildConfigField 'String', 'CHAT_BASE', '"https://chat.lyrnox.com"' }
+  qa {
+   initWith debug
+   applicationIdSuffix '.qa'
+   versionNameSuffix '-qa'
+   buildConfigField 'String', 'CHAT_BASE', '"http://127.0.0.1:8000"'
+   matchingFallbacks = ['debug']
+  }
+ }
  lint { abortOnError true }
 }
 dependencies {

@@ -72,7 +72,7 @@ public final class ChatFragment extends Fragment {
   private TextView replyName, replyText;
   private String replyPrefix = "";
   private MessageAdapter adapter;
-  private Button older, send, attach, voice;
+  private Button older, send, attach, voice, unread;
   private MediaRecorder recorder;
   private File recording;
   private long recordStart;
@@ -85,6 +85,9 @@ public final class ChatFragment extends Fragment {
   private VideoTrack remoteVideoTrack;
   private String pendingCallKind = "";
   private String pendingCallId = "";
+  private String pendingCallTargetId = "";
+  private String selectedCallTargetId = "";
+  private String selectedCallTargetName = "";
 
   private final Runnable callPoll = new Runnable() {
     @Override public void run() {
@@ -221,9 +224,11 @@ public final class ChatFragment extends Fragment {
     heading = text(roomName, 18, ink);
     heading.setTypeface(null, Typeface.BOLD);
     subtitle = text("正在连接…", 12, muted);
+    subtitle.setContentDescription("在线人数；点击选择一对一通话对象");
+    subtitle.setOnClickListener(v -> showMembers());
     titles.addView(heading);
     titles.addView(subtitle);
-    titles.setOnClickListener(v -> shareRoom());
+    heading.setOnClickListener(v -> shareRoom());
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
     Button identity = button("☺", () -> nicknameDialog(false));
     identity.setContentDescription("更改昵称");
@@ -292,6 +297,13 @@ public final class ChatFragment extends Fragment {
     list.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
     adapter = new MessageAdapter();
     list.setAdapter(adapter);
+    list.setOnScrollListener(
+        new AbsListView.OnScrollListener() {
+          @Override public void onScrollStateChanged(AbsListView view, int scrollState) {}
+          @Override public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+            if (isNearBottom() && unread != null) unread.setVisibility(View.GONE);
+          }
+        });
     chatArea = new FrameLayout(getActivity());
     chatArea.addView(list, new FrameLayout.LayoutParams(-1, -1));
     emptyState = vertical();
@@ -317,6 +329,15 @@ public final class ChatFragment extends Fragment {
     FrameLayout.LayoutParams emptyParams = new FrameLayout.LayoutParams(-1, -1);
     chatArea.addView(emptyState, emptyParams);
     list.setEmptyView(emptyState);
+    unread = button("有新消息 · 回到底部 ↓", () -> scrollToLatestMessage());
+    unread.setTextSize(12);
+    unread.setBackground(shape(mine, 22));
+    unread.setElevation(dp(5));
+    unread.setVisibility(View.GONE);
+    unread.setContentDescription("有新消息，返回聊天底部");
+    FrameLayout.LayoutParams unreadParams = new FrameLayout.LayoutParams(-2, dp(42), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+    unreadParams.bottomMargin = dp(12);
+    chatArea.addView(unread, unreadParams);
     sessionOverlay = new FrameLayout(getActivity());
     View scrim = new View(getActivity());
     scrim.setBackgroundColor(0x660f1710);
@@ -514,6 +535,7 @@ public final class ChatFragment extends Fragment {
     voice = null;
     attach = null;
     older = null;
+    unread = null;
     root = null;
     list = null;
     input = null;
@@ -948,13 +970,14 @@ public final class ChatFragment extends Fragment {
     if (!missing.isEmpty()) {
       pendingCallKind = kind;
       pendingCallId = expectedCallId == null ? "" : expectedCallId;
+      pendingCallTargetId = expectedCallId == null ? selectedCallTargetId : "";
       requestPermissions(missing.toArray(new String[0]), 41);
       return;
     }
-    startNativeCall(kind, expectedCallId);
+    startNativeCall(kind, expectedCallId, expectedCallId == null ? selectedCallTargetId : "");
   }
 
-  private void startNativeCall(String kind, String expectedCallId) {
+  private void startNativeCall(String kind, String expectedCallId, String targetId) {
     if (getActivity() == null || session == null || nativeCall != null) return;
     final String selfId = session.optString("id", "");
     final NativeCallSession[] callRef = new NativeCallSession[1];
@@ -994,7 +1017,7 @@ public final class ChatFragment extends Fragment {
     try {
       io.execute(() -> {
         try {
-          call.start(kind, expectedCallId);
+          call.start(kind, expectedCallId, targetId);
           main.post(() -> {
             if (nativeCall == callRef[0]) refreshCallState();
           });
@@ -1392,13 +1415,41 @@ public final class ChatFragment extends Fragment {
   }
 
   private void showMembers() {
-    StringBuilder s = new StringBuilder();
-    for (int i = 0; i < members.length(); i++)
-      s.append(members.optJSONObject(i).optString("nickname")).append('\n');
+    if (getActivity() == null) return;
+    ArrayList<String> choices = new ArrayList<>();
+    ArrayList<String> ids = new ArrayList<>();
+    choices.add("多人通话");
+    ids.add("");
+    String selfId = session == null ? "" : session.optString("id", "");
+    int checked = selectedCallTargetId.isEmpty() ? 0 : -1;
+    for (int i = 0; i < members.length(); i++) {
+      JSONObject member = members.optJSONObject(i);
+      if (member == null) continue;
+      String id = member.optString("id", "");
+      if (id.isEmpty() || id.equals(selfId)) continue;
+      if (id.equals(selectedCallTargetId)) checked = choices.size();
+      choices.add(member.optString("nickname", "匿名"));
+      ids.add(id);
+    }
+    String title = members.length() + " 人在线 · 选择通话范围";
+    if (ids.size() == 1) {
+      new AlertDialog.Builder(getActivity()).setTitle(title)
+          .setMessage("暂时没有其他在线成员；语音/视频按钮将发起多人通话。")
+          .setPositiveButton("知道了", null).show();
+      return;
+    }
     new AlertDialog.Builder(getActivity())
-        .setTitle(members.length() + " 人在线")
-        .setMessage(s.length() == 0 ? "暂时没有在线成员" : s.toString())
-        .setPositiveButton("关闭", null)
+        .setTitle(title)
+        .setSingleChoiceItems(choices.toArray(new String[0]), checked, (dialog, which) -> {
+          selectedCallTargetId = ids.get(which);
+          selectedCallTargetName = choices.get(which).equals("多人通话") ? "" : choices.get(which);
+          render(false);
+          toast(selectedCallTargetId.isEmpty()
+              ? "已选择多人通话；语音/视频按钮将呼叫房间成员"
+              : "已选择 " + selectedCallTargetName + "；语音/视频按钮将发起一对一通话");
+          dialog.dismiss();
+        })
+        .setNegativeButton("关闭", null)
         .show();
   }
 
@@ -1446,6 +1497,9 @@ public final class ChatFragment extends Fragment {
       core.run("reset", "room", rid);
       messages = new JSONArray();
       members = new JSONArray();
+      if (unread != null) unread.setVisibility(View.GONE);
+      selectedCallTargetId = "";
+      selectedCallTargetName = "";
       pendingId = "";
       pendingText = "";
       if (input != null) input.setText("");
@@ -1510,9 +1564,16 @@ public final class ChatFragment extends Fragment {
                       }
                       try {
                         JSONObject event = new JSONObject(value);
+                        JSONObject incoming = event.optJSONObject("message");
+                        boolean showUnread = "message".equals(event.optString("type"))
+                            && incoming != null
+                            && !incoming.optBoolean("mine")
+                            && !containsMessage(incoming.optString("id"))
+                            && !isNearBottom();
                         core.run("event", "event", event);
                         if ("call-changed".equals(event.optString("type"))) refreshCallState();
                         refreshSnapshot(true);
+                        if (showUnread && unread != null) unread.setVisibility(View.VISIBLE);
                         if ("ready".equals(event.optString("type"))) resync(g, null, null);
                       } catch (Exception e) {
                         error(e);
@@ -1610,10 +1671,50 @@ public final class ChatFragment extends Fragment {
         });
   }
 
+  private boolean isNearBottom() {
+    if (list == null || adapter == null || adapter.getCount() == 0) return true;
+    return list.getLastVisiblePosition() >= adapter.getCount() - 2;
+  }
+
+  private boolean containsMessage(String id) {
+    if (id == null || id.isEmpty()) return false;
+    for (int i = 0; i < messages.length(); i++) {
+      JSONObject message = messages.optJSONObject(i);
+      if (message != null && id.equals(message.optString("id"))) return true;
+    }
+    return false;
+  }
+
+  private void scrollToLatestMessage() {
+    if (list == null || adapter == null || adapter.getCount() == 0) return;
+    list.post(() -> {
+      if (list != null && adapter != null && adapter.getCount() > 0) {
+        list.setSelection(adapter.getCount() - 1);
+        if (unread != null) unread.setVisibility(View.GONE);
+      }
+    });
+  }
+
   private void refreshSnapshot(boolean follow) throws Exception {
     JSONObject s = core.run("snapshot");
     messages = s.getJSONArray("messages");
     members = s.getJSONArray("members");
+    if (!selectedCallTargetId.isEmpty()) {
+      boolean stillOnline = false;
+      for (int i = 0; i < members.length(); i++) {
+        JSONObject member = members.optJSONObject(i);
+        if (member != null && selectedCallTargetId.equals(member.optString("id"))) {
+          stillOnline = true;
+          selectedCallTargetName = member.optString("nickname", "匿名");
+          break;
+        }
+      }
+      if (!stillOnline) {
+        selectedCallTargetId = "";
+        selectedCallTargetName = "";
+        toast("通话对象已离线，已切回多人通话");
+      }
+    }
     render(follow);
   }
 
@@ -1623,7 +1724,8 @@ public final class ChatFragment extends Fragment {
     boolean bottom = list.getCount() == 0 || list.getLastVisiblePosition() >= list.getCount() - 2;
     heading.setText(roomName);
     subtitle.setText(
-        (room.equals("lobby") ? "公共大厅" : ("房号 " + room)) + " · " + members.length() + " 人在线");
+        (room.equals("lobby") ? "公共大厅" : ("房号 " + room)) + " · " + members.length() + " 人在线"
+            + (selectedCallTargetName.isEmpty() ? "" : " · 呼叫 " + selectedCallTargetName));
     if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     adapter.notifyDataSetChanged();
@@ -1770,7 +1872,7 @@ public final class ChatFragment extends Fragment {
       if (p == 0
           || !time(ts, "yyyy-MM-dd")
               .equals(time(getItem(p - 1).optLong("created"), "yyyy-MM-dd"))) {
-        TextView day = text(time(ts, "M月d日"), 11, muted);
+        TextView day = text(MessageGrouping.dayLabel(ts, System.currentTimeMillis()), 11, muted);
         day.setGravity(Gravity.CENTER);
         day.setPadding(dp(12), dp(4), dp(12), dp(4));
         day.setBackground(shape(pale, 20));
@@ -2163,11 +2265,13 @@ public final class ChatFragment extends Fragment {
     if (request == 41) {
       String kind = pendingCallKind;
       String callId = pendingCallId;
+      String targetId = pendingCallTargetId;
       pendingCallKind = "";
       pendingCallId = "";
+      pendingCallTargetId = "";
       boolean granted = result.length > 0;
       for (int value : result) if (value != PackageManager.PERMISSION_GRANTED) granted = false;
-      if (granted && !kind.isEmpty()) startNativeCall(kind, callId.isEmpty() ? null : callId);
+      if (granted && !kind.isEmpty()) startNativeCall(kind, callId.isEmpty() ? null : callId, targetId);
       else toast("未获得媒体权限，未启动通话测试");
     }
   }

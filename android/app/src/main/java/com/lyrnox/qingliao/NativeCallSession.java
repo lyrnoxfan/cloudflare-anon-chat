@@ -60,8 +60,14 @@ final class NativeCallSession {
     this.listener = listener;
   }
 
+  static JSONObject startPayload(String kind, String targetId) throws JSONException {
+    JSONObject body = new JSONObject().put("kind", kind);
+    if (targetId != null && !targetId.isEmpty()) body.put("target", targetId);
+    return body;
+  }
+
   /** Called on the app's I/O executor. It never performs network or WebRTC work on the UI thread. */
-  synchronized void start(String requestedKind, String expectedCallId) throws Exception {
+  synchronized void start(String requestedKind, String expectedCallId, String targetId) throws Exception {
     if (!"audio".equals(requestedKind) && !"video".equals(requestedKind))
       throw new IllegalArgumentException("通话类型无效");
     kind = requestedKind;
@@ -71,7 +77,7 @@ final class NativeCallSession {
       JSONObject call;
       if (expectedCallId == null || expectedCallId.isEmpty()) {
         if (current != null) throw new IOException("房间已有通话，请从聊天顶部选择加入");
-        JSONObject started = net.callApi(room, "call-start", new JSONObject().put("kind", kind), null);
+        JSONObject started = net.callApi(room, "call-start", startPayload(kind, targetId), null);
         call = started.getJSONObject("call");
       } else {
         if (current == null || !expectedCallId.equals(current.optString("id")))
