@@ -31,12 +31,17 @@ export default {
    const s=await session(req,env);
    if(p==='/api/session'&&req.method==='GET')return json({...s,limits:LIMITS,sfu:!!(env.SFU_APP_ID&&env.SFU_APP_SECRET)});
    if(p==='/api/rooms'&&req.method==='POST'){
-     await rate(env,'create:ip:'+ip,5,3600000);await rate(env,'create:s:'+s.id,5,3600000);const b=await body(req);const name=text(b.name,LIMITS.roomName),pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin),salt=id(),room=id();
-     await env.DB.batch([env.DB.prepare("INSERT INTO rooms(id,name,kind,password_hash,salt,iterations,created) VALUES(?,?,'private',?,?,?,?)").bind(room,name,await password(pw,salt),salt,100000,now()),env.DB.prepare('INSERT INTO room_sessions(room_id,session_id,expires) VALUES(?,?,?)').bind(room,s.id,now()+LIMITS.grantMs)]);return json({id:room,name,kind:'private'},201)
+     await rate(env,'create:ip:'+ip,5,3600000);await rate(env,'create:s:'+s.id,5,3600000);const b=await body(req);const name=text(b.name,LIMITS.roomName),pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin),salt=id(),hash=await password(pw,salt);
+     // Private room IDs double as shareable numbers. Existing UUID room IDs remain valid.
+     for(let attempt=0;attempt<8;attempt++){
+       const n=crypto.getRandomValues(new Uint32Array(2));const room=String(1000000000+Number(((BigInt(n[0])<<32n)|BigInt(n[1]))%9000000000n));
+       try{await env.DB.batch([env.DB.prepare("INSERT INTO rooms(id,name,kind,password_hash,salt,iterations,created) VALUES(?,?,'private',?,?,?,?)").bind(room,name,hash,salt,100000,now()),env.DB.prepare('INSERT INTO room_sessions(room_id,session_id,expires) VALUES(?,?,?)').bind(room,s.id,now()+LIMITS.grantMs)]);return json({id:room,name,kind:'private'},201)}catch(e){if(!/UNIQUE constraint failed: rooms\.id/i.test(String(e)))throw e}
+     }
+     throw new Fault(503,'暂时无法创建房间，请稍后重试');
    }
    const m=p.match(/^\/api\/r\/([a-zA-Z0-9-]{1,80})\/([a-z-]+)(?:\/([a-zA-Z0-9-]{1,80}))?$/);need(m,404,'接口不存在');const [,rid,op,arg]=m;
    if(op==='join'&&req.method==='POST'){
-     await rate(env,'join:ip:'+ip+':'+rid,10,60000);await rate(env,'join:s:'+s.id+':'+rid,10,60000);const r=await env.DB.prepare("SELECT * FROM rooms WHERE id=? AND status='active'").bind(rid).first<any>();need(r,404,'房间不存在');if(r.kind==='private'){const b=await body(req);const pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin);need(equal(await password(pw,r.salt,r.iterations),r.password_hash),403,'房间口令不正确');await env.DB.prepare('INSERT INTO room_sessions(room_id,session_id,expires) VALUES(?,?,?) ON CONFLICT(room_id,session_id) DO UPDATE SET expires=excluded.expires').bind(rid,s.id,now()+LIMITS.grantMs).run()}return json({id:r.id,name:r.name,kind:r.kind})
+     await rate(env,'join:ip:'+ip,40,60000);await rate(env,'join:ip:'+ip+':'+rid,10,60000);await rate(env,'join:s:'+s.id+':'+rid,10,60000);const r=await env.DB.prepare("SELECT * FROM rooms WHERE id=? AND status='active'").bind(rid).first<any>();need(r,404,'房间不存在');if(r.kind==='private'){const b=await body(req);const pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin);need(equal(await password(pw,r.salt,r.iterations),r.password_hash),403,'房间口令不正确');await env.DB.prepare('INSERT INTO room_sessions(room_id,session_id,expires) VALUES(?,?,?) ON CONFLICT(room_id,session_id) DO UPDATE SET expires=excluded.expires').bind(rid,s.id,now()+LIMITS.grantMs).run()}return json({id:r.id,name:r.name,kind:r.kind})
    }
    await roomAuth(env,rid,s);
    if(op==='upload-content'&&req.method==='PUT'){
