@@ -59,8 +59,12 @@ public final class ChatFragment extends Fragment {
   private LinearLayout emptyState;
   private TextView heading, subtitle, statusView, recordView, callLabel;
   private LinearLayout callPanel, callButtons;
-  private FrameLayout callVideoContainer;
-  private Button callJoin, callDecline, callMute, callCamera, callEnd;
+  private LinearLayout callVideoContainer;
+  private SurfaceViewRenderer localRenderer;
+  private VideoTrack localVideoTrack;
+  private Button callJoin, callDecline, callMute, callCamera, callFlip, callEnd;
+  private HorizontalScrollView callButtonScroll;
+  private long observedCallStartedAt;
   private JSONObject observedCall;
   private boolean callStateBusy = false;
   private EditText input;
@@ -250,25 +254,31 @@ public final class ChatFragment extends Fragment {
     callPanel.setBackground(shape(Color.rgb(239, 244, 232), 18));
     callLabel = text("", 13, ink);
     callPanel.addView(callLabel);
-    callVideoContainer = new FrameLayout(getActivity());
+    callVideoContainer = new LinearLayout(getActivity());
+    callVideoContainer.setOrientation(LinearLayout.HORIZONTAL);
     callVideoContainer.setVisibility(View.GONE);
-    callVideoContainer.setBackgroundColor(0xff263029);
+    callVideoContainer.setBackground(shape(Color.rgb(38, 48, 41), 18));
+    callVideoContainer.setClipToOutline(true);
     LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(-1, dp(220));
     videoParams.topMargin = dp(8);
     callPanel.addView(callVideoContainer, videoParams);
+    callButtonScroll = new HorizontalScrollView(getActivity());
+    callButtonScroll.setHorizontalScrollBarEnabled(false);
     callButtons = new LinearLayout(getActivity());
     callButtons.setGravity(Gravity.CENTER_VERTICAL);
     callJoin = callButton("接听 / 加入", this::acceptObservedCall);
     callDecline = callButton("拒绝", this::declineObservedCall);
     callMute = callButton("静音", this::toggleCallMicrophone);
     callCamera = callButton("关摄像头", this::toggleCallCamera);
+    callFlip = callButton("切后摄", this::flipCallCamera);
     callEnd = callButton("挂断", this::stopNativeCall);
-    callButtons.addView(callJoin, new LinearLayout.LayoutParams(0, dp(40), 1));
-    callButtons.addView(callDecline, new LinearLayout.LayoutParams(0, dp(40), 1));
-    callButtons.addView(callMute, new LinearLayout.LayoutParams(0, dp(40), 1));
-    callButtons.addView(callCamera, new LinearLayout.LayoutParams(0, dp(40), 1));
-    callButtons.addView(callEnd, new LinearLayout.LayoutParams(0, dp(40), 1));
-    callPanel.addView(callButtons);
+    for (Button control : new Button[] {callJoin, callDecline, callMute, callCamera, callFlip, callEnd}) {
+      LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(dp(76), dp(40));
+      controlParams.rightMargin = dp(5);
+      callButtons.addView(control, controlParams);
+    }
+    callButtonScroll.addView(callButtons, new HorizontalScrollView.LayoutParams(-2, dp(42)));
+    callPanel.addView(callButtonScroll, new LinearLayout.LayoutParams(-1, dp(44)));
     content.addView(callPanel, new LinearLayout.LayoutParams(-1, -2));
     older = button("加载更早消息", () -> history(true));
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
@@ -494,6 +504,8 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onDestroyView() {
     clearRemoteRenderer();
+    clearLocalRenderer();
+    main.removeCallbacks(callClock);
     if (nicknamePrompt != null) {
       nicknamePrompt.dismiss();
       nicknamePrompt = null;
@@ -517,6 +529,8 @@ public final class ChatFragment extends Fragment {
     callDecline = null;
     callMute = null;
     callCamera = null;
+    callFlip = null;
+    callButtonScroll = null;
     callEnd = null;
     emojiPanel = null;
     replyDraft = null;
@@ -958,6 +972,7 @@ public final class ChatFragment extends Fragment {
             main.post(() -> {
               if (nativeCall == callRef[0]) nativeCall = null;
               clearRemoteRenderer();
+              clearLocalRenderer();
               renderCallPanel();
               if (getActivity() != null) {
                 setStatus("通话已结束");
@@ -966,27 +981,10 @@ public final class ChatFragment extends Fragment {
             });
           }
           @Override public void onRemoteVideo(VideoTrack track, EglBase.Context eglContext) {
-            main.post(() -> {
-              if (nativeCall != callRef[0] || getActivity() == null || callVideoContainer == null) return;
-              clearRemoteRenderer();
-              if (track == null || eglContext == null) return;
-              try {
-                SurfaceViewRenderer renderer = new SurfaceViewRenderer(getActivity());
-                renderer.init(eglContext, new RendererCommon.RendererEvents() {
-                  @Override public void onFirstFrameRendered() {}
-                  @Override public void onFrameResolutionChanged(int width, int height, int rotation) {}
-                });
-                renderer.setMirror(false);
-                renderer.setEnableHardwareScaler(true);
-                renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
-                callVideoContainer.addView(renderer, new FrameLayout.LayoutParams(-1, -1));
-                callVideoContainer.setVisibility(View.VISIBLE);
-                track.addSink(renderer);
-                remoteRenderer = renderer;
-                remoteVideoTrack = track;
-                renderCallPanel();
-              } catch (RuntimeException ignored) { clearRemoteRenderer(); }
-            });
+            main.post(() -> attachCallVideo(track, eglContext, false, callRef[0]));
+          }
+          @Override public void onLocalVideo(VideoTrack track, EglBase.Context eglContext) {
+            main.post(() -> attachCallVideo(track, eglContext, true, callRef[0]));
           }
         });
     callRef[0] = call;
@@ -997,10 +995,15 @@ public final class ChatFragment extends Fragment {
       io.execute(() -> {
         try {
           call.start(kind, expectedCallId);
+          main.post(() -> {
+            if (nativeCall == callRef[0]) refreshCallState();
+          });
         } catch (Exception e) {
           call.stop();
           main.post(() -> {
             if (nativeCall == callRef[0]) nativeCall = null;
+            clearRemoteRenderer();
+            clearLocalRenderer();
             renderCallPanel();
             if (getActivity() != null) {
               setStatus("通话未启动");
@@ -1011,6 +1014,8 @@ public final class ChatFragment extends Fragment {
       });
     } catch (RejectedExecutionException e) {
       nativeCall = null;
+      clearRemoteRenderer();
+      clearLocalRenderer();
       renderCallPanel();
       call.requestStop();
       toast("应用正在关闭，无法启动通话测试");
@@ -1042,7 +1047,12 @@ public final class ChatFragment extends Fragment {
   }
 
   private void observeCall(JSONObject call) {
+    String incomingId = call == null ? "" : call.optString("id", "");
+    if (!incomingId.equals(observedCall == null ? "" : observedCall.optString("id", "")))
+      observedCallStartedAt = call == null ? 0L : call.optLong("created", System.currentTimeMillis());
     observedCall = call;
+    main.removeCallbacks(callClock);
+    if (call != null) main.postDelayed(callClock, 1000);
     if (call == null || session == null) {
       renderCallPanel();
       return;
@@ -1063,9 +1073,15 @@ public final class ChatFragment extends Fragment {
     if (callPanel == null || callLabel == null) return;
     if (nativeCall != null) {
       String kind = observedCall == null ? "" : observedCall.optString("kind", "");
-      callLabel.setText("通话中 · " + ("video".equals(kind) ? "视频" : "语音") + " · " + status);
-      if (callVideoContainer != null)
-        callVideoContainer.setVisibility(remoteRenderer != null && "video".equals(kind) ? View.VISIBLE : View.GONE);
+      JSONArray callMembers = observedCall == null ? null : observedCall.optJSONArray("members");
+      int memberCount = callMembers == null ? 0 : callMembers.length();
+      boolean direct = observedCall != null && !observedCall.isNull("target");
+      long startedAt = observedCallStartedAt > 0 ? observedCallStartedAt : System.currentTimeMillis();
+      long seconds = Math.max(0L, (System.currentTimeMillis() - startedAt) / 1000L);
+      String elapsed = String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
+      callLabel.setText((direct ? "一对一" : "多人") + ("video".equals(kind) ? "视频" : "语音")
+          + " · " + memberCount + " 人 · " + elapsed + " · " + status);
+      updateCallVideoVisibility("video".equals(kind));
       callJoin.setVisibility(View.GONE);
       callDecline.setVisibility(View.GONE);
       callMute.setText(nativeCall.isMicrophoneEnabled() ? "静音" : "开麦");
@@ -1074,6 +1090,8 @@ public final class ChatFragment extends Fragment {
       callCamera.setEnabled("video".equals(kind) && nativeCall.isCameraReady());
       callMute.setVisibility(View.VISIBLE);
       callCamera.setVisibility("video".equals(kind) ? View.VISIBLE : View.GONE);
+      callFlip.setVisibility("video".equals(kind) && nativeCall.isCameraReady() ? View.VISIBLE : View.GONE);
+      callFlip.setText(nativeCall.isFrontFacing() ? "切后摄" : "切前摄");
       callEnd.setVisibility(View.VISIBLE);
       callPanel.setVisibility(View.VISIBLE);
       return;
@@ -1097,6 +1115,7 @@ public final class ChatFragment extends Fragment {
       callDecline.setVisibility(invite.optBoolean("invited") ? View.VISIBLE : View.GONE);
       callMute.setVisibility(View.GONE);
       callCamera.setVisibility(View.GONE);
+      callFlip.setVisibility(View.GONE);
       callEnd.setVisibility(View.GONE);
       callPanel.setVisibility(View.VISIBLE);
     } catch (Exception e) {
@@ -1125,6 +1144,23 @@ public final class ChatFragment extends Fragment {
   private void toggleCallMicrophone() { toggleCallTrack(false); }
   private void toggleCallCamera() { toggleCallTrack(true); }
 
+  private void flipCallCamera() {
+    NativeCallSession call = nativeCall;
+    if (call == null) return;
+    try {
+      io.execute(() -> {
+        try {
+          boolean frontFacing = call.flipCamera();
+          main.post(() -> {
+            if (nativeCall == call && callFlip != null) callFlip.setText(frontFacing ? "切后摄" : "切前摄");
+          });
+        } catch (Exception e) {
+          main.post(() -> { if (getActivity() != null) toast("切换摄像头失败：" + e.getMessage()); });
+        }
+      });
+    } catch (RejectedExecutionException ignored) {}
+  }
+
   private void toggleCallTrack(boolean camera) {
     NativeCallSession call = nativeCall;
     if (call == null) return;
@@ -1142,22 +1178,81 @@ public final class ChatFragment extends Fragment {
     } catch (RejectedExecutionException ignored) {}
   }
 
+  private final Runnable callClock = new Runnable() {
+    @Override public void run() {
+      if (!started || observedCall == null) return;
+      renderCallPanel();
+      main.postDelayed(this, 1000);
+    }
+  };
+
+  private void attachCallVideo(VideoTrack track, EglBase.Context eglContext, boolean local,
+      NativeCallSession call) {
+    if (nativeCall != call || getActivity() == null || callVideoContainer == null) return;
+    if (track == null || eglContext == null) {
+      if (local) clearLocalRenderer(); else clearRemoteRenderer();
+      return;
+    }
+    try {
+      SurfaceViewRenderer renderer = new SurfaceViewRenderer(getActivity());
+      renderer.init(eglContext, new RendererCommon.RendererEvents() {
+        @Override public void onFirstFrameRendered() {}
+        @Override public void onFrameResolutionChanged(int width, int height, int rotation) {}
+      });
+      renderer.setMirror(local);
+      renderer.setEnableHardwareScaler(true);
+      renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
+      if (local) {
+        clearLocalRenderer();
+        localRenderer = renderer;
+        localVideoTrack = track;
+      } else {
+        clearRemoteRenderer();
+        remoteRenderer = renderer;
+        remoteVideoTrack = track;
+      }
+      track.addSink(renderer);
+      callVideoContainer.addView(renderer, new LinearLayout.LayoutParams(0, -1, 1));
+      updateCallVideoVisibility(true);
+      renderCallPanel();
+    } catch (RuntimeException ignored) {
+      if (local) clearLocalRenderer(); else clearRemoteRenderer();
+    }
+  }
+
+  private void updateCallVideoVisibility(boolean videoCall) {
+    if (callVideoContainer == null) return;
+    callVideoContainer.setVisibility(videoCall && callVideoContainer.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+  }
+
+  private void clearLocalRenderer() {
+    if (localVideoTrack != null && localRenderer != null) localVideoTrack.removeSink(localRenderer);
+    if (localRenderer != null) {
+      if (callVideoContainer != null) callVideoContainer.removeView(localRenderer);
+      localRenderer.release();
+      localRenderer = null;
+    }
+    localVideoTrack = null;
+    updateCallVideoVisibility(true);
+  }
+
   private void clearRemoteRenderer() {
     if (remoteVideoTrack != null && remoteRenderer != null) {
       try { remoteVideoTrack.removeSink(remoteRenderer); } catch (Exception ignored) {}
     }
     remoteVideoTrack = null;
-    if (callVideoContainer != null) callVideoContainer.setVisibility(View.GONE);
     if (remoteRenderer != null) {
       if (remoteRenderer.getParent() instanceof ViewGroup)
         ((ViewGroup) remoteRenderer.getParent()).removeView(remoteRenderer);
       try { remoteRenderer.release(); } catch (Exception ignored) {}
       remoteRenderer = null;
     }
+    updateCallVideoVisibility(true);
   }
 
   private void stopNativeCall() {
     clearRemoteRenderer();
+    clearLocalRenderer();
     NativeCallSession call = nativeCall;
     if (call == null) return;
     nativeCall = null;

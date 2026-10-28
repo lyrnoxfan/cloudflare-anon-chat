@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.*;
 import org.webrtc.*;
 
@@ -18,6 +19,7 @@ final class NativeCallSession {
     void onStatus(String message);
     void onFailure(String message);
     void onRemoteVideo(VideoTrack track, EglBase.Context eglContext);
+    void onLocalVideo(VideoTrack track, EglBase.Context eglContext);
   }
 
   private static final Object INIT_LOCK = new Object();
@@ -34,7 +36,7 @@ final class NativeCallSession {
 
   private String kind, callId, cap;
   private boolean owner, joined;
-  private boolean microphoneEnabled = true, cameraEnabled = true;
+  private boolean microphoneEnabled = true, cameraEnabled = true, frontFacing = true;
   private PeerConnectionFactory factory;
   private PeerConnection peer;
   private PeerConnection subscriberPeer;
@@ -168,6 +170,7 @@ final class NativeCallSession {
       if (selected == null) selected = name;
     }
     if (selected == null) throw new IOException("未发现可用摄像头");
+    frontFacing = cameras.isFrontFacing(selected);
     capturer = cameras.createCapturer(selected, null);
     if (capturer == null) throw new IOException("无法打开摄像头");
     textureHelper = SurfaceTextureHelper.create("QingliaoCamera", egl.getEglBaseContext());
@@ -175,6 +178,7 @@ final class NativeCallSession {
     capturer.initialize(textureHelper, context, videoSource.getCapturerObserver());
     capturer.startCapture(640, 360, 20);
     videoTrack = factory.createVideoTrack("local-video", videoSource);
+    listener.onLocalVideo(videoTrack, egl.getEglBaseContext());
   }
 
   private void initializeFactory() {
@@ -389,6 +393,7 @@ final class NativeCallSession {
   synchronized boolean isCameraReady() { return videoTrack != null; }
   synchronized boolean isMicrophoneEnabled() { return microphoneEnabled; }
   synchronized boolean isCameraEnabled() { return cameraEnabled; }
+  synchronized boolean isFrontFacing() { return frontFacing; }
 
   synchronized boolean toggleMicrophone() throws IOException {
     if (audioTrack == null) throw new IOException("麦克风轨道尚未就绪");
@@ -402,6 +407,34 @@ final class NativeCallSession {
     cameraEnabled = !cameraEnabled;
     videoTrack.setEnabled(cameraEnabled);
     return cameraEnabled;
+  }
+
+  synchronized boolean flipCamera() throws IOException {
+    if (capturer == null || videoTrack == null) throw new IOException("摄像头轨道尚未就绪");
+    CountDownLatch switched = new CountDownLatch(1);
+    AtomicReference<String> failure = new AtomicReference<>();
+    AtomicBoolean nextFacing = new AtomicBoolean(frontFacing);
+    try {
+      capturer.switchCamera(new CameraVideoCapturer.CameraSwitchHandler() {
+        @Override public void onCameraSwitchDone(boolean isFrontFacing) {
+          nextFacing.set(isFrontFacing);
+          switched.countDown();
+        }
+        @Override public void onCameraSwitchError(String errorDescription) {
+          failure.set(errorDescription == null ? "未知错误" : errorDescription);
+          switched.countDown();
+        }
+      });
+      if (!switched.await(8, TimeUnit.SECONDS)) throw new IOException("切换摄像头超时");
+      if (failure.get() != null) throw new IOException(failure.get());
+      frontFacing = nextFacing.get();
+      return frontFacing;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("切换摄像头已中断", e);
+    } catch (RuntimeException e) {
+      throw new IOException("无法切换摄像头", e);
+    }
   }
 
   private void checkStopped() throws IOException {
