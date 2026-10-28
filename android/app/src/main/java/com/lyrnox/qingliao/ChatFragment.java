@@ -50,7 +50,7 @@ public final class ChatFragment extends Fragment {
       members = new JSONArray(),
       emojiData = new JSONArray();
   private final Map<String, Drawable> emojiDrawables = new HashMap<>();
-  private final LruCache<String, Bitmap> inlineImageCache = new LruCache<>(8 * 1024 * 1024) {
+  private final LruCache<String, Bitmap> inlineImageCache = new LruCache<String, Bitmap>(8 * 1024 * 1024) {
     @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
   };
   private final Set<String> inlineImagesLoading = Collections.synchronizedSet(new HashSet<>());
@@ -1953,7 +1953,7 @@ public final class ChatFragment extends Fragment {
         bubble.setContentDescription(nick + "：" + m.optString("text"));
       } else if (kind.equals("image")) {
         LinearLayout card = vertical();
-        card.setBackground(messageShape(mine ? this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
         card.setPadding(dp(6), dp(6), dp(6), dp(6));
         card.setContentDescription(nick + "：图片，轻触查看大图");
         FrameLayout imageFrame = new FrameLayout(getActivity());
@@ -1983,14 +1983,14 @@ public final class ChatFragment extends Fragment {
         card.setOrientation(kind.equals("audio") ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(13), dp(10), dp(13), dp(10));
-        card.setBackground(messageShape(mine ? this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
         String kindName = kind.equals("audio") ? "语音" : kind.equals("video") ? "视频" : "文件";
         card.setContentDescription(nick + "：" + kindName + "，" + (kind.equals("file") ? "轻触保存" : "轻触播放"));
         LinearLayout infoRow = new LinearLayout(getActivity());
         infoRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView glyph = text(kind.equals("audio") ? "♫" : kind.equals("video") ? "▶" : "▤", 20, green);
         glyph.setGravity(Gravity.CENTER);
-        glyph.setBackground(shape(mine ? pale : this.mine, 24));
+        glyph.setBackground(shape(mine ? pale : ChatFragment.this.mine, 24));
         infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
         LinearLayout details = vertical();
         details.setPadding(dp(10), 0, dp(4), 0);
