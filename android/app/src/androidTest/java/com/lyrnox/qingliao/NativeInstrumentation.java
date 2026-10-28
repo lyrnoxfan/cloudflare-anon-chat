@@ -26,6 +26,19 @@ public final class NativeInstrumentation extends Instrumentation {
     Bundle result = new Bundle();
     try (NativeCore core = new NativeCore()) {
       check(core.run("reset", "room", "lobby").getString("room").equals("lobby"), "reset");
+      check("回复 小青：你好\n".equals(ReplyDraft.prefix(" 小青 ", "你好")), "reply header matches web contract");
+      String quoted160 = new String(new char[161]).replace("\0", "字");
+      check(ReplyDraft.prefix("小青", quoted160).equals("回复 小青：" + quoted160.substring(0, 160) + "\n"), "outgoing reply quote matches web 160-character limit");
+      check("媒体消息".equals(ReplyDraft.preview("  ")), "empty media reply gets a readable label");
+      String longReply = ReplyDraft.preview(new String(new char[161]).replace("\0", "字"));
+      check(longReply.length() == 161 && longReply.endsWith("…"), "reply preview truncates long source text");
+      check("回复 小青：你好\n正文".equals(ReplyDraft.messageText(ReplyDraft.prefix("小青", "你好"), " 正文 ")), "reply sends quoted context plus typed body");
+      check("正文".equals(ReplyDraft.messageText("", " 正文 ")), "cancelled reply sends only typed body");
+      long now = 1_800_000_000_000L;
+      check(MessageGrouping.sameGroup(false, "小青", now, false, "小青", now + 299_999), "same speaker groups within five minutes");
+      check(!MessageGrouping.sameGroup(false, "小青", now, false, "小青", now + 300_000), "five-minute boundary ends group");
+      check(!MessageGrouping.sameGroup(false, "小青", now, false, "小蓝", now + 1), "different speaker ends group");
+      check(!MessageGrouping.sameGroup(false, "小青", now, true, "小青", now + 1), "mine status ends group");
       JSONObject expiredGate = core.run("gate", "expired", true, "hasSession", false);
       check(expiredGate.getBoolean("show") && !expiredGate.getBoolean("contentVisible"), "expired gate hides chat");
       JSONObject activeGate = core.run("gate", "expired", false, "hasSession", true);
@@ -131,19 +144,20 @@ public final class NativeInstrumentation extends Instrumentation {
       }
       check(mockUnauthorized && core.run("session_state").getBoolean("showGate"), "mock 401 keeps nickname gate visible");
       core.run("reset", "room", "lobby");
+      String quotedSend = ReplyDraft.messageText(ReplyDraft.prefix("来访者", "引用文本"), "hello Android");
       JSONObject sent =
           MessageProtocol.send(
               core,
               (path, body) -> {
                 check("/api/r/lobby/send".equals(path), "message mock receives actual send contract");
-                check("hello Android".equals(body.getString("text")), "message payload is native-normalized");
+                check(quotedSend.equals(body.getString("text")), "reply quote reaches send API with typed message");
                 check("mock-client-1".equals(body.getString("clientId")), "client id preserved for idempotency");
                 JSONObject message = new JSONObject()
                     .put("id", "server-message-1")
                     .put("nickname", "Mock guest")
                     .put("client_id", "mock-client-1")
                     .put("kind", "text")
-                    .put("text", "hello Android")
+                    .put("text", quotedSend)
                     .put("created", 1700000000000L)
                     .put("mine", true)
                     .put("deleted", 0);
@@ -151,8 +165,9 @@ public final class NativeInstrumentation extends Instrumentation {
               },
               "/api/r/lobby/send",
               "lobby",
-              " hello Android ",
+              quotedSend,
               "mock-client-1");
+      check(quotedSend.equals(sent.getString("text")), "native state accepts the complete quoted reply");
       check("server-message-1".equals(sent.getString("id")), "mock send response accepted by C++ core");
       check(core.run("snapshot").getJSONArray("messages").length() == 1, "send response immediately updates native message state");
       JSONObject incoming = new JSONObject()

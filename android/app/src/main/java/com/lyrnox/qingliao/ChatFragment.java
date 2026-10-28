@@ -64,6 +64,9 @@ public final class ChatFragment extends Fragment {
   private JSONObject observedCall;
   private boolean callStateBusy = false;
   private EditText input;
+  private LinearLayout replyDraft;
+  private TextView replyName, replyText;
+  private String replyPrefix = "";
   private MessageAdapter adapter;
   private Button older, send, attach, voice;
   private MediaRecorder recorder;
@@ -393,6 +396,27 @@ public final class ChatFragment extends Fragment {
     sc.addView(grid);
     emojiPanel.addView(sc, new LinearLayout.LayoutParams(-1, dp(220)));
     content.addView(emojiPanel);
+    replyDraft = new LinearLayout(getActivity());
+    replyDraft.setGravity(Gravity.CENTER_VERTICAL);
+    replyDraft.setPadding(dp(14), dp(8), dp(8), dp(8));
+    replyDraft.setBackground(shape(Color.rgb(239, 244, 232), 18));
+    replyDraft.setVisibility(View.GONE);
+    LinearLayout replyCopy = vertical();
+    replyCopy.setPadding(dp(2), 0, dp(6), 0);
+    replyName = text("", 11, green);
+    replyText = text("", 13, ink);
+    replyText.setSingleLine(true);
+    replyText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    replyCopy.addView(replyName);
+    replyCopy.addView(replyText);
+    replyDraft.addView(replyCopy, new LinearLayout.LayoutParams(0, -2, 1));
+    Button cancelReply = button("×", this::clearReplyDraft);
+    cancelReply.setContentDescription("取消回复");
+    cancelReply.setTextSize(20);
+    replyDraft.addView(cancelReply, new LinearLayout.LayoutParams(dp(40), dp(40)));
+    LinearLayout.LayoutParams replyParams = new LinearLayout.LayoutParams(-1, -2);
+    replyParams.setMargins(dp(12), dp(3), dp(12), 0);
+    content.addView(replyDraft, replyParams);
     LinearLayout composer = new LinearLayout(getActivity());
     composer.setGravity(Gravity.BOTTOM);
     composer.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -495,6 +519,9 @@ public final class ChatFragment extends Fragment {
     callCamera = null;
     callEnd = null;
     emojiPanel = null;
+    replyDraft = null;
+    replyName = null;
+    replyText = null;
     chatArea = null;
     emptyState = null;
     sessionGate = null;
@@ -1327,6 +1354,7 @@ public final class ChatFragment extends Fragment {
       pendingId = "";
       pendingText = "";
       if (input != null) input.setText("");
+      clearReplyDraft();
       render(true);
       enter();
     } catch (Exception e) {
@@ -1514,9 +1542,16 @@ public final class ChatFragment extends Fragment {
   private void sendText() {
     if (busy || session == null || input == null) return;
     String raw = input.getText().toString();
+    String sentReplyPrefix = replyPrefix;
+    String outgoing = ReplyDraft.messageText(sentReplyPrefix, raw);
+    if (outgoing.trim().isEmpty()) return;
+    if (outgoing.length() > 4000) {
+      toast("引用和消息合计不能超过 4000 字，请缩短后发送");
+      return;
+    }
     try {
-      if (!raw.equals(pendingText) || pendingId.isEmpty()) {
-        pendingText = raw;
+      if (!outgoing.equals(pendingText) || pendingId.isEmpty()) {
+        pendingText = outgoing;
         pendingId = UUID.randomUUID().toString();
       }
       String path = endpoint("send");
@@ -1527,12 +1562,13 @@ public final class ChatFragment extends Fragment {
       send.setEnabled(false);
       setStatus("正在发送…");
       task(
-          () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path, sentRoom, raw, sentClientId),
+          () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path, sentRoom, outgoing, sentClientId),
           value -> {
             busy = false;
             if (send != null) send.setEnabled(true);
             if (g != generation) return;
             if (input != null && input.getText().toString().equals(raw)) input.setText("");
+            if (replyPrefix.equals(sentReplyPrefix)) clearReplyDraft();
             pendingId = "";
             pendingText = "";
             setStatus("已发送");
@@ -1605,8 +1641,17 @@ public final class ChatFragment extends Fragment {
       JSONObject m = getItem(p);
       boolean mine = m.optBoolean("mine"), deleted = m.optInt("deleted") != 0;
       LinearLayout row = vertical();
-      row.setPadding(dp(4), dp(5), dp(4), dp(5));
       long ts = m.optLong("created");
+      String nick = m.optString("nickname", "匿名");
+      JSONObject previous = p > 0 ? getItem(p - 1) : null;
+      JSONObject following = p + 1 < getCount() ? getItem(p + 1) : null;
+      boolean grouped = previous != null && MessageGrouping.sameGroup(
+          previous.optBoolean("mine"), previous.optString("nickname", "匿名"), previous.optLong("created"),
+          mine, nick, ts);
+      boolean groupEnd = following == null || !MessageGrouping.sameGroup(
+          mine, nick, ts, following.optBoolean("mine"), following.optString("nickname", "匿名"),
+          following.optLong("created"));
+      row.setPadding(dp(4), dp(grouped ? 1 : 5), dp(4), dp(groupEnd ? 18 : 1));
       if (p == 0
           || !time(ts, "yyyy-MM-dd")
               .equals(time(getItem(p - 1).optLong("created"), "yyyy-MM-dd"))) {
@@ -1622,13 +1667,12 @@ public final class ChatFragment extends Fragment {
       }
       LinearLayout wrap = vertical();
       wrap.setGravity(mine ? Gravity.END : Gravity.START);
-      String nick = m.optString("nickname", "匿名");
-      if (!mine) {
+      if (!mine && !grouped) {
         TextView name = text(nick, 11, muted);
         name.setPadding(dp(12), 0, 0, dp(4));
         wrap.addView(name);
       }
-      TextView bubble = new MessageBubbleView(getActivity(), mine, deleted);
+      TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd);
       bubble.setLineSpacing(dp(3), 1);
       bubble.setMaxWidth(
           Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(84)));
@@ -1649,9 +1693,11 @@ public final class ChatFragment extends Fragment {
                 + "  ·  点击打开");
       bubble.setContentDescription(nick + "：" + bubble.getText());
       wrap.addView(bubble);
-      TextView stamp = text(time(ts, "HH:mm"), 10, muted);
-      stamp.setPadding(dp(12), dp(3), dp(12), 0);
-      wrap.addView(stamp);
+      if (groupEnd) {
+        TextView stamp = text(time(ts, "HH:mm"), 10, muted);
+        stamp.setPadding(dp(12), dp(3), dp(12), 0);
+        wrap.addView(stamp);
+      }
       LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(-1, -2);
       row.addView(wrap, wp);
       if (!deleted) {
@@ -1664,6 +1710,11 @@ public final class ChatFragment extends Fragment {
       }
       return row;
     }
+  }
+
+  private void clearReplyDraft() {
+    replyPrefix = "";
+    if (replyDraft != null) replyDraft.setVisibility(View.GONE);
   }
 
   private void messageMenu(JSONObject m) {
@@ -1683,8 +1734,10 @@ public final class ChatFragment extends Fragment {
                 toast("已复制");
               } else if (w == 1) {
                 if (input != null) {
-                  input.setText("> " + m.optString("nickname") + "：" + value + "\n");
-                  input.setSelection(input.length());
+                  replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
+                  if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
+                  if (replyText != null) replyText.setText(ReplyDraft.preview(value));
+                  if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
                   input.requestFocus();
                 }
               } else
