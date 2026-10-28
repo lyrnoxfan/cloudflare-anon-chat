@@ -34,6 +34,7 @@ final class NativeCallSession {
 
   private String kind, callId, cap;
   private boolean owner, joined;
+  private boolean microphoneEnabled = true, cameraEnabled = true;
   private PeerConnectionFactory factory;
   private PeerConnection peer;
   private PeerConnection subscriberPeer;
@@ -58,7 +59,7 @@ final class NativeCallSession {
   }
 
   /** Called on the app's I/O executor. It never performs network or WebRTC work on the UI thread. */
-  synchronized void start(String requestedKind) throws Exception {
+  synchronized void start(String requestedKind, String expectedCallId) throws Exception {
     if (!"audio".equals(requestedKind) && !"video".equals(requestedKind))
       throw new IllegalArgumentException("通话类型无效");
     kind = requestedKind;
@@ -66,12 +67,15 @@ final class NativeCallSession {
       core.run("call_begin", "kind", kind);
       JSONObject current = net.callApi(room, "call-state", null, null).optJSONObject("call");
       JSONObject call;
-      if (current == null) {
+      if (expectedCallId == null || expectedCallId.isEmpty()) {
+        if (current != null) throw new IOException("房间已有通话，请从聊天顶部选择加入");
         JSONObject started = net.callApi(room, "call-start", new JSONObject().put("kind", kind), null);
         call = started.getJSONObject("call");
       } else {
+        if (current == null || !expectedCallId.equals(current.optString("id")))
+          throw new IOException("通话已结束或发生变化，请重新查看邀请");
         if (!kind.equals(current.optString("kind")))
-          throw new IOException("房间已有另一种类型的通话");
+          throw new IOException("通话类型发生变化");
         if (current.optBoolean("joined"))
           throw new IOException("当前会话已在通话中，请先退出原通话");
         call = current;
@@ -379,6 +383,25 @@ final class NativeCallSession {
     if (audioSource != null) { audioSource.dispose(); audioSource = null; }
     if (factory != null) { factory.dispose(); factory = null; }
     if (egl != null) { egl.release(); egl = null; }
+  }
+
+  synchronized boolean isMicrophoneReady() { return audioTrack != null; }
+  synchronized boolean isCameraReady() { return videoTrack != null; }
+  synchronized boolean isMicrophoneEnabled() { return microphoneEnabled; }
+  synchronized boolean isCameraEnabled() { return cameraEnabled; }
+
+  synchronized boolean toggleMicrophone() throws IOException {
+    if (audioTrack == null) throw new IOException("麦克风轨道尚未就绪");
+    microphoneEnabled = !microphoneEnabled;
+    audioTrack.setEnabled(microphoneEnabled);
+    return microphoneEnabled;
+  }
+
+  synchronized boolean toggleCamera() throws IOException {
+    if (videoTrack == null) throw new IOException("摄像头轨道尚未就绪");
+    cameraEnabled = !cameraEnabled;
+    videoTrack.setEnabled(cameraEnabled);
+    return cameraEnabled;
   }
 
   private void checkStopped() throws IOException {

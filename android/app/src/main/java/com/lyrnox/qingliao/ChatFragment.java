@@ -56,7 +56,12 @@ public final class ChatFragment extends Fragment {
   private Button gateEnter;
   private ListView list;
   private LinearLayout emptyState;
-  private TextView heading, subtitle, statusView, recordView;
+  private TextView heading, subtitle, statusView, recordView, callLabel;
+  private LinearLayout callPanel, callButtons;
+  private FrameLayout callVideoContainer;
+  private Button callJoin, callDecline, callMute, callCamera, callEnd;
+  private JSONObject observedCall;
+  private boolean callStateBusy = false;
   private EditText input;
   private MessageAdapter adapter;
   private Button older, send, attach, voice;
@@ -71,6 +76,15 @@ public final class ChatFragment extends Fragment {
   private SurfaceViewRenderer remoteRenderer;
   private VideoTrack remoteVideoTrack;
   private String pendingCallKind = "";
+  private String pendingCallId = "";
+
+  private final Runnable callPoll = new Runnable() {
+    @Override public void run() {
+      if (!started) return;
+      refreshCallState();
+      main.postDelayed(this, 7000);
+    }
+  };
 
   interface Job {
     Object run() throws Exception;
@@ -149,6 +163,13 @@ public final class ChatFragment extends Fragment {
     return b;
   }
 
+  private Button callButton(String title, Runnable action) {
+    Button b = button(title, action);
+    b.setTextSize(11);
+    b.setPadding(dp(4), dp(6), dp(4), dp(6));
+    return b;
+  }
+
   private EditText field(String hint, boolean password) {
     EditText e = new EditText(getActivity());
     e.setSingleLine(true);
@@ -220,6 +241,32 @@ public final class ChatFragment extends Fragment {
           else showSessionGate();
         });
     content.addView(statusView);
+    callPanel = vertical();
+    callPanel.setVisibility(View.GONE);
+    callPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
+    callPanel.setBackground(shape(Color.rgb(239, 244, 232), 18));
+    callLabel = text("", 13, ink);
+    callPanel.addView(callLabel);
+    callVideoContainer = new FrameLayout(getActivity());
+    callVideoContainer.setVisibility(View.GONE);
+    callVideoContainer.setBackgroundColor(0xff263029);
+    LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(-1, dp(220));
+    videoParams.topMargin = dp(8);
+    callPanel.addView(callVideoContainer, videoParams);
+    callButtons = new LinearLayout(getActivity());
+    callButtons.setGravity(Gravity.CENTER_VERTICAL);
+    callJoin = callButton("接听 / 加入", this::acceptObservedCall);
+    callDecline = callButton("拒绝", this::declineObservedCall);
+    callMute = callButton("静音", this::toggleCallMicrophone);
+    callCamera = callButton("关摄像头", this::toggleCallCamera);
+    callEnd = callButton("挂断", this::stopNativeCall);
+    callButtons.addView(callJoin, new LinearLayout.LayoutParams(0, dp(40), 1));
+    callButtons.addView(callDecline, new LinearLayout.LayoutParams(0, dp(40), 1));
+    callButtons.addView(callMute, new LinearLayout.LayoutParams(0, dp(40), 1));
+    callButtons.addView(callCamera, new LinearLayout.LayoutParams(0, dp(40), 1));
+    callButtons.addView(callEnd, new LinearLayout.LayoutParams(0, dp(40), 1));
+    callPanel.addView(callButtons);
+    content.addView(callPanel, new LinearLayout.LayoutParams(-1, -2));
     older = button("加载更早消息", () -> history(true));
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     content.addView(older, new LinearLayout.LayoutParams(-1, dp(36)));
@@ -411,6 +458,7 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onStop() {
     started = false;
+    main.removeCallbacks(callPoll);
     stopNativeCall();
     disconnect();
     cancelRecording();
@@ -436,6 +484,15 @@ public final class ChatFragment extends Fragment {
     heading = null;
     subtitle = null;
     statusView = null;
+    callPanel = null;
+    callButtons = null;
+    callVideoContainer = null;
+    callLabel = null;
+    callJoin = null;
+    callDecline = null;
+    callMute = null;
+    callCamera = null;
+    callEnd = null;
     emojiPanel = null;
     chatArea = null;
     emptyState = null;
@@ -742,15 +799,15 @@ public final class ChatFragment extends Fragment {
       return;
     }
     new AlertDialog.Builder(getActivity())
-        .setTitle("原生媒体测试")
-        .setMessage("选择本机媒体模式。其他参会者须使用相同通话并已成功发布；远端接收和画面仍未在设备上验收。")
+        .setTitle("音视频通话")
+        .setMessage("选择发起语音或视频通话；收到的房间邀请会显示在聊天顶部。")
         .setItems(new String[] {"发布语音", "发布语音和视频"},
-            (d, which) -> requestNativeCall(which == 0 ? "audio" : "video"))
+            (d, which) -> requestNativeCall(which == 0 ? "audio" : "video", null))
         .setNegativeButton("取消", null)
         .show();
   }
 
-  private void requestNativeCall(String kind) {
+  private void requestNativeCall(String kind, String expectedCallId) {
     if (getActivity() == null) return;
     ArrayList<String> missing = new ArrayList<>();
     if (getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
@@ -759,13 +816,14 @@ public final class ChatFragment extends Fragment {
       missing.add(Manifest.permission.CAMERA);
     if (!missing.isEmpty()) {
       pendingCallKind = kind;
+      pendingCallId = expectedCallId == null ? "" : expectedCallId;
       requestPermissions(missing.toArray(new String[0]), 41);
       return;
     }
-    startNativeCall(kind);
+    startNativeCall(kind, expectedCallId);
   }
 
-  private void startNativeCall(String kind) {
+  private void startNativeCall(String kind, String expectedCallId) {
     if (getActivity() == null || session == null || nativeCall != null) return;
     final String selfId = session.optString("id", "");
     final NativeCallSession[] callRef = new NativeCallSession[1];
@@ -775,7 +833,7 @@ public final class ChatFragment extends Fragment {
             main.post(() -> {
               if (nativeCall == callRef[0] && getActivity() != null) {
                 setStatus(message);
-                toast(message);
+                renderCallPanel();
               }
             });
           }
@@ -783,15 +841,16 @@ public final class ChatFragment extends Fragment {
             main.post(() -> {
               if (nativeCall == callRef[0]) nativeCall = null;
               clearRemoteRenderer();
+              renderCallPanel();
               if (getActivity() != null) {
-                setStatus("通话测试已停止");
+                setStatus("通话已结束");
                 toast(message);
               }
             });
           }
           @Override public void onRemoteVideo(VideoTrack track, EglBase.Context eglContext) {
             main.post(() -> {
-              if (nativeCall != callRef[0] || getActivity() == null || root == null) return;
+              if (nativeCall != callRef[0] || getActivity() == null || callVideoContainer == null) return;
               clearRemoteRenderer();
               if (track == null || eglContext == null) return;
               try {
@@ -803,30 +862,31 @@ public final class ChatFragment extends Fragment {
                 renderer.setMirror(false);
                 renderer.setEnableHardwareScaler(true);
                 renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
-                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(160), dp(220), Gravity.TOP | Gravity.RIGHT);
-                params.topMargin = dp(72);
-                params.rightMargin = dp(12);
-                root.addView(renderer, params);
+                callVideoContainer.addView(renderer, new FrameLayout.LayoutParams(-1, -1));
+                callVideoContainer.setVisibility(View.VISIBLE);
                 track.addSink(renderer);
                 remoteRenderer = renderer;
                 remoteVideoTrack = track;
+                renderCallPanel();
               } catch (RuntimeException ignored) { clearRemoteRenderer(); }
             });
           }
         });
     callRef[0] = call;
     nativeCall = call;
-    setStatus("正在准备原生媒体…");
+    setStatus("正在准备通话…");
+    renderCallPanel();
     try {
       io.execute(() -> {
         try {
-          call.start(kind);
+          call.start(kind, expectedCallId);
         } catch (Exception e) {
           call.stop();
           main.post(() -> {
             if (nativeCall == callRef[0]) nativeCall = null;
+            renderCallPanel();
             if (getActivity() != null) {
-              setStatus("原生媒体测试未启动");
+              setStatus("通话未启动");
               toast(e.getMessage() == null ? "通话测试失败" : e.getMessage());
             }
           });
@@ -834,9 +894,135 @@ public final class ChatFragment extends Fragment {
       });
     } catch (RejectedExecutionException e) {
       nativeCall = null;
+      renderCallPanel();
       call.requestStop();
       toast("应用正在关闭，无法启动通话测试");
     }
+  }
+
+  private void refreshCallState() {
+    if (!started || session == null || callStateBusy) return;
+    callStateBusy = true;
+    final int g = generation;
+    final String rid = room;
+    try {
+      io.execute(() -> {
+        JSONObject result = null;
+        Exception failure = null;
+        try { result = net.callApi(rid, "call-state", null, null).optJSONObject("call"); }
+        catch (Exception e) { failure = e; }
+        final JSONObject call = result;
+        final Exception error = failure;
+        main.post(() -> {
+          if (g != generation) return;
+          callStateBusy = false;
+          if (error == null) observeCall(call);
+        });
+      });
+    } catch (RejectedExecutionException e) {
+      callStateBusy = false;
+    }
+  }
+
+  private void observeCall(JSONObject call) {
+    observedCall = call;
+    if (call == null || session == null) {
+      renderCallPanel();
+      return;
+    }
+    try {
+      JSONObject invite = core.run("call_invitation", "call", call, "self", session.optString("id", ""));
+      if (!invite.optBoolean("eligible") || invite.optBoolean("joined") || nativeCall != null) {
+        renderCallPanel();
+        return;
+      }
+    } catch (Exception ignored) {
+      observedCall = null;
+    }
+    renderCallPanel();
+  }
+
+  private void renderCallPanel() {
+    if (callPanel == null || callLabel == null) return;
+    if (nativeCall != null) {
+      String kind = observedCall == null ? "" : observedCall.optString("kind", "");
+      callLabel.setText("通话中 · " + ("video".equals(kind) ? "视频" : "语音") + " · " + status);
+      if (callVideoContainer != null)
+        callVideoContainer.setVisibility(remoteRenderer != null && "video".equals(kind) ? View.VISIBLE : View.GONE);
+      callJoin.setVisibility(View.GONE);
+      callDecline.setVisibility(View.GONE);
+      callMute.setText(nativeCall.isMicrophoneEnabled() ? "静音" : "开麦");
+      callCamera.setText(nativeCall.isCameraEnabled() ? "关摄像头" : "开摄像头");
+      callMute.setEnabled(nativeCall.isMicrophoneReady());
+      callCamera.setEnabled("video".equals(kind) && nativeCall.isCameraReady());
+      callMute.setVisibility(View.VISIBLE);
+      callCamera.setVisibility("video".equals(kind) ? View.VISIBLE : View.GONE);
+      callEnd.setVisibility(View.VISIBLE);
+      callPanel.setVisibility(View.VISIBLE);
+      return;
+    }
+    if (observedCall == null || session == null) {
+      callPanel.setVisibility(View.GONE);
+      return;
+    }
+    try {
+      JSONObject invite = core.run("call_invitation", "call", observedCall, "self", session.optString("id", ""));
+      if (!invite.optBoolean("eligible") || invite.optBoolean("joined")) {
+        callPanel.setVisibility(View.GONE);
+        return;
+      }
+      String kind = invite.optString("kind", "audio");
+      JSONArray members = observedCall.optJSONArray("members");
+      int count = members == null ? 0 : members.length();
+      callLabel.setText(("video".equals(kind) ? "视频" : "语音") + "通话 · " + count + " 人已加入");
+      callJoin.setText(invite.optBoolean("invited") ? "接听" : "加入");
+      callJoin.setVisibility(View.VISIBLE);
+      callDecline.setVisibility(invite.optBoolean("invited") ? View.VISIBLE : View.GONE);
+      callMute.setVisibility(View.GONE);
+      callCamera.setVisibility(View.GONE);
+      callEnd.setVisibility(View.GONE);
+      callPanel.setVisibility(View.VISIBLE);
+    } catch (Exception e) {
+      callPanel.setVisibility(View.GONE);
+    }
+  }
+
+  private void acceptObservedCall() {
+    if (observedCall == null) return;
+    String id = observedCall.optString("id", "");
+    String kind = observedCall.optString("kind", "audio");
+    if (id.isEmpty()) return;
+    requestNativeCall(kind, id);
+  }
+
+  private void declineObservedCall() {
+    if (observedCall == null || session == null) return;
+    String id = observedCall.optString("id", "");
+    if (id.isEmpty()) return;
+    observedCall = null;
+    renderCallPanel();
+    final String rid = room;
+    task(() -> net.callApi(rid, "call-decline", new JSONObject().put("callId", id), null), value -> refreshCallState());
+  }
+
+  private void toggleCallMicrophone() { toggleCallTrack(false); }
+  private void toggleCallCamera() { toggleCallTrack(true); }
+
+  private void toggleCallTrack(boolean camera) {
+    NativeCallSession call = nativeCall;
+    if (call == null) return;
+    try {
+      io.execute(() -> {
+        try {
+          boolean enabled = camera ? call.toggleCamera() : call.toggleMicrophone();
+          main.post(() -> {
+            if (nativeCall != call) return;
+            if (camera && callCamera != null) callCamera.setText(enabled ? "关摄像头" : "开摄像头");
+            if (!camera && callMute != null) callMute.setText(enabled ? "静音" : "开麦");
+          });
+        } catch (Exception e) { main.post(() -> toast(e.getMessage())); }
+      });
+    } catch (RejectedExecutionException ignored) {}
   }
 
   private void clearRemoteRenderer() {
@@ -844,6 +1030,7 @@ public final class ChatFragment extends Fragment {
       try { remoteVideoTrack.removeSink(remoteRenderer); } catch (Exception ignored) {}
     }
     remoteVideoTrack = null;
+    if (callVideoContainer != null) callVideoContainer.setVisibility(View.GONE);
     if (remoteRenderer != null) {
       if (remoteRenderer.getParent() instanceof ViewGroup)
         ((ViewGroup) remoteRenderer.getParent()).removeView(remoteRenderer);
@@ -857,6 +1044,7 @@ public final class ChatFragment extends Fragment {
     NativeCallSession call = nativeCall;
     if (call == null) return;
     nativeCall = null;
+    renderCallPanel();
     call.requestStop();
     try {
       io.execute(call::stop);
@@ -1031,10 +1219,14 @@ public final class ChatFragment extends Fragment {
       return;
     }
     try {
+      stopNativeCall();
       disconnect();
       cancelRecording();
       stopPlayer();
       generation++;
+      callStateBusy = false;
+      observedCall = null;
+      renderCallPanel();
       room = rid;
       roomName = rid.equals("lobby") ? "公共大厅" : "私密房间";
       next = null;
@@ -1066,6 +1258,9 @@ public final class ChatFragment extends Fragment {
           render(false);
           connect(g);
           history(false);
+          refreshCallState();
+          main.removeCallbacks(callPoll);
+          main.postDelayed(callPoll, 7000);
         });
   }
 
@@ -1102,6 +1297,7 @@ public final class ChatFragment extends Fragment {
                       try {
                         JSONObject event = new JSONObject(value);
                         core.run("event", "event", event);
+                        if ("call-changed".equals(event.optString("type"))) refreshCallState();
                         refreshSnapshot(true);
                         if ("ready".equals(event.optString("type"))) resync(g, null, null);
                       } catch (Exception e) {
@@ -1689,10 +1885,12 @@ public final class ChatFragment extends Fragment {
     }
     if (request == 41) {
       String kind = pendingCallKind;
+      String callId = pendingCallId;
       pendingCallKind = "";
+      pendingCallId = "";
       boolean granted = result.length > 0;
       for (int value : result) if (value != PackageManager.PERMISSION_GRANTED) granted = false;
-      if (granted && !kind.isEmpty()) startNativeCall(kind);
+      if (granted && !kind.isEmpty()) startNativeCall(kind, callId.isEmpty() ? null : callId);
       else toast("未获得媒体权限，未启动通话测试");
     }
   }

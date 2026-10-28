@@ -46,6 +46,26 @@ public final class NativeInstrumentation extends Instrumentation {
       boolean invalidRejected = false;
       try { core.run("session_accept", "session", invalidSession, "now", System.currentTimeMillis()); } catch (Exception expected) { invalidRejected = true; }
       check(invalidRejected && core.run("session_state").getBoolean("contentVisible"), "invalid response preserves last accepted session");
+      JSONObject directInvite = core.run("call_invitation", "call",
+          new JSONObject().put("id", "call-invite-1").put("kind", "video")
+              .put("owner", "caller").put("target", "guest-2")
+              .put("invited", true).put("joined", false), "self", "guest-2");
+      check(directInvite.getBoolean("eligible") && directInvite.getBoolean("invited"), "targeted incoming call is eligible to answer");
+      JSONObject wrongTarget = core.run("call_invitation", "call",
+          new JSONObject().put("id", "call-invite-2").put("kind", "audio")
+              .put("owner", "caller").put("target", "guest-2")
+              .put("invited", false).put("joined", false), "self", "guest-3");
+      check(!wrongTarget.getBoolean("eligible"), "direct call invitation is hidden from other guests");
+      JSONObject groupCall = core.run("call_invitation", "call",
+          new JSONObject().put("id", "call-group-1").put("kind", "audio")
+              .put("owner", "caller").put("target", JSONObject.NULL)
+              .put("invited", false).put("joined", false), "self", "guest-3");
+      check(groupCall.getBoolean("eligible") && !groupCall.getBoolean("invited"), "group call can be joined without a direct invitation");
+      JSONObject joinedCall = core.run("call_invitation", "call",
+          new JSONObject().put("id", "call-joined-1").put("kind", "audio")
+              .put("owner", "caller").put("target", "guest-2")
+              .put("invited", true).put("joined", true), "self", "guest-2");
+      check(joinedCall.getBoolean("eligible") && joinedCall.getBoolean("joined"), "already joined session is not offered as incoming call");
       core.run("session_required");
       check(core.run("session_state").getBoolean("showGate"), "expired session hides chat again");
       check(

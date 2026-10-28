@@ -47,6 +47,35 @@ J Engine::command(const J& in){auto op=in.at("op").get<std::string>();
  }
  if(op=="session_accept")return acceptSession(in.at("session"),in.at("now").get<int64_t>());
  if(op=="gate"){bool show=in.value("expired",false)&&!in.value("hasSession",false);return {{"show",show},{"contentVisible",!show}};}
+ if (op == "call_invitation") {
+   const auto c = in.at("call");
+   const auto self = in.at("self");
+   if (!c.is_object() || !self.is_string() || self.get<std::string>().empty() ||
+       !c.contains("id") || !c["id"].is_string() ||
+       !c.contains("kind") || !c["kind"].is_string() ||
+       !c.contains("owner") || !c["owner"].is_string() ||
+       !c.contains("invited") || !c["invited"].is_boolean() ||
+       !c.contains("joined") || !c["joined"].is_boolean())
+     throw std::runtime_error("通话邀请格式无效");
+   const auto id = c["id"].get<std::string>();
+   const auto kind = c["kind"].get<std::string>();
+   const auto owner = c["owner"].get<std::string>();
+   if (id.empty() || id.size() > 80 ||
+       !std::all_of(id.begin(), id.end(), [](unsigned char ch) {
+         return std::isalnum(ch) || ch == '-';
+       }) || (kind != "audio" && kind != "video") || owner.empty() || owner.size() > 80)
+     throw std::runtime_error("通话邀请内容无效");
+   std::string target;
+   if (c.contains("target") && !c["target"].is_null()) {
+     if (!c["target"].is_string() || c["target"].get<std::string>().empty() ||
+         c["target"].get<std::string>().size() > 80)
+       throw std::runtime_error("通话邀请对象无效");
+     target = c["target"].get<std::string>();
+   }
+   const bool eligible = target.empty() || target == self.get<std::string>() || owner == self.get<std::string>();
+   return {{"id", id}, {"kind", kind}, {"invited", c["invited"]},
+           {"joined", c["joined"]}, {"eligible", eligible}};
+ }
  if (op == "call_begin") {
    if (callPhase != "idle" && callPhase != "failed")
      throw std::runtime_error("已有通话正在进行");

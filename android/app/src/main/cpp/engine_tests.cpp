@@ -74,6 +74,17 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  check(callEngine.command({{"op","call_failed"}})["phase"]=="failed");
  check(callEngine.command({{"op","call_cleanup"}})["phase"]=="idle"&&callEngine.command({{"op","call_state"}})["id"]=="");
  check(callRejects({{"op","call_begin"},{"kind","screen"}}));
+ auto invitation = callEngine.command({{"op","call_invitation"},{"self","guest-2"},{"call",{{"id","call-invite-1"},{"kind","video"},{"owner","guest-1"},{"target","guest-2"},{"invited",true},{"joined",false}}}});
+ check(invitation["eligible"]==true&&invitation["invited"]==true&&invitation["joined"]==false&&invitation["kind"]=="video");
+ auto wrongTarget = callEngine.command({{"op","call_invitation"},{"self","guest-3"},{"call",{{"id","call-invite-2"},{"kind","audio"},{"owner","guest-1"},{"target","guest-2"},{"invited",false},{"joined",false}}}});
+ check(wrongTarget["eligible"]==false);
+ auto groupInvite = callEngine.command({{"op","call_invitation"},{"self","guest-3"},{"call",{{"id","call-invite-3"},{"kind","audio"},{"owner","guest-1"},{"target",nullptr},{"invited",false},{"joined",false}}}});
+ check(groupInvite["eligible"]==true);
+ auto joinedInvite = callEngine.command({{"op","call_invitation"},{"self","guest-2"},{"call",{{"id","call-invite-4"},{"kind","audio"},{"owner","guest-1"},{"target","guest-2"},{"invited",true},{"joined",true}}}});
+ check(joinedInvite["joined"]==true);
+ check(rejects({{"op","call_invitation"},{"self","guest-2"},{"call",{{"id","!bad"},{"kind","video"},{"owner","guest-1"},{"target","guest-2"},{"invited",true},{"joined",false}}}}));
+ check(rejects({{"op","call_invitation"},{"self","guest-2"},{"call",{{"id","call-5"},{"kind","data"},{"owner","guest-1"},{"target","guest-2"},{"invited",true},{"joined",false}}}}));
+ check(callEngine.command({{"op","call_state"}})["phase"]=="idle");
  ql::Engine badCall;auto badReject=[&](J j){try{badCall.command(j);return false;}catch(...){return true;}};
  badCall.command({{"op","call_begin"},{"kind","audio"}});badCall.command({{"op","call_started"},{"call",{{"id","call-2"},{"kind","audio"},{"owner","owner"}}}});
  check(badReject({{"op","call_joined"},{"call",{{"id","call-2"},{"kind","audio"},{"joined",true},{"cap",""}}},{"iceServers",ice}}));
