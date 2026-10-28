@@ -62,7 +62,7 @@ public final class ChatFragment extends Fragment {
   private Button gateEnter;
   private ListView list;
   private LinearLayout emptyState;
-  private TextView heading, subtitle, statusView, recordView, callLabel;
+  private TextView heading, subtitle, identityBadge, onlineDot, statusView, recordView, callLabel;
   private LinearLayout callPanel, callButtons;
   private LinearLayout callVideoContainer;
   private SurfaceViewRenderer localRenderer;
@@ -77,7 +77,8 @@ public final class ChatFragment extends Fragment {
   private TextView replyName, replyText;
   private String replyPrefix = "";
   private MessageAdapter adapter;
-  private Button older, send, attach, voice, unread;
+  private PopupWindow messagePopup;
+  private Button older, send, attach, voice, unread, emojiButton;
   private MediaRecorder recorder;
   private File recording;
   private long recordStart;
@@ -193,6 +194,18 @@ public final class ChatFragment extends Fragment {
     return b;
   }
 
+  private Button iconButton(String glyph, String description, Runnable action) {
+    Button b = button(glyph, action);
+    b.setTextSize(20);
+    b.setGravity(Gravity.CENTER);
+    b.setPadding(0, 0, 0, 0);
+    b.setBackgroundColor(Color.TRANSPARENT);
+    b.setContentDescription(description);
+    b.setMinHeight(dp(40));
+    b.setMinimumHeight(dp(40));
+    return b;
+  }
+
   private Button callButton(String title, Runnable action) {
     Button b = button(title, action);
     b.setTextSize(11);
@@ -234,38 +247,62 @@ public final class ChatFragment extends Fragment {
     root.addView(content, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout header = new LinearLayout(getActivity());
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setPadding(dp(12), dp(8), dp(12), dp(8));
-    Button drawerToggle = button("☰", this::openRoomDrawer);
-    drawerToggle.setContentDescription("打开房间导航");
-    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(44), dp(44)));
+    header.setPadding(dp(9), dp(8), dp(9), dp(8));
+    Button drawerToggle = iconButton("‹", "打开房间导航", this::openRoomDrawer);
+    drawerToggle.setTextSize(31);
+    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    TextView roomMark = text("▱", 17, green);
+    roomMark.setGravity(Gravity.CENTER);
+    roomMark.setBackground(shape(pale, 22));
+    roomMark.setContentDescription("轻聊房间");
+    LinearLayout.LayoutParams roomMarkParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+    roomMarkParams.leftMargin = dp(4);
+    roomMarkParams.rightMargin = dp(8);
+    header.addView(roomMark, roomMarkParams);
     LinearLayout titles = vertical();
-    titles.setPadding(dp(10), 0, dp(8), 0);
+    LinearLayout titleLine = new LinearLayout(getActivity());
+    titleLine.setGravity(Gravity.CENTER_VERTICAL);
     heading = text(roomName, 18, ink);
     heading.setTypeface(null, Typeface.BOLD);
-    subtitle = text("正在连接…", 12, muted);
+    titleLine.addView(heading);
+    identityBadge = text("匿名", 9, muted);
+    identityBadge.setGravity(Gravity.CENTER);
+    identityBadge.setPadding(dp(6), dp(3), dp(6), dp(3));
+    identityBadge.setBackground(shape(pale, 12));
+    LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+    badgeParams.leftMargin = dp(5);
+    titleLine.addView(identityBadge, badgeParams);
+    identityBadge.setContentDescription("更改昵称");
+    identityBadge.setOnClickListener(v -> nicknameDialog(false));
+    titles.addView(titleLine);
+    LinearLayout presence = new LinearLayout(getActivity());
+    presence.setGravity(Gravity.CENTER_VERTICAL);
+    subtitle = text("正在连接…", 11, muted);
     subtitle.setContentDescription("在线人数；点击选择一对一通话对象");
     subtitle.setOnClickListener(v -> showMembers());
-    titles.addView(heading);
-    titles.addView(subtitle);
+    presence.addView(subtitle);
+    onlineDot = text("●", 9, muted);
+    onlineDot.setContentDescription("连接状态");
+    LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(-2, -2);
+    dotParams.leftMargin = dp(5);
+    presence.addView(onlineDot, dotParams);
+    titles.addView(presence);
     heading.setOnClickListener(v -> shareRoom());
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
-    Button identity = button("☺", () -> nicknameDialog(false));
-    identity.setContentDescription("更改昵称");
-    identity.setTextSize(17);
-    header.addView(identity, new LinearLayout.LayoutParams(dp(42), dp(42)));
-    Button audioAction = button("语", () -> startCallFromToolbar("audio"));
-    audioAction.setContentDescription("发起语音通话");
-    header.addView(audioAction, new LinearLayout.LayoutParams(dp(42), dp(42)));
-    Button videoAction = button("视", () -> startCallFromToolbar("video"));
-    videoAction.setContentDescription("发起视频通话");
-    header.addView(videoAction, new LinearLayout.LayoutParams(dp(42), dp(42)));
-    Button more = button("⋯", this::roomMenu);
-    more.setContentDescription("更多房间操作");
-    header.addView(more, new LinearLayout.LayoutParams(dp(42), dp(42)));
+    Button audioAction = iconButton("☎", "发起语音通话", () -> startCallFromToolbar("audio"));
+    header.addView(audioAction, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    Button videoAction = iconButton("▣", "发起视频通话", () -> startCallFromToolbar("video"));
+    header.addView(videoAction, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    Button more = iconButton("···", "更多房间操作", this::roomMenu);
+    header.addView(more, new LinearLayout.LayoutParams(dp(34), dp(42)));
     content.addView(header);
+    View headerLine = new View(getActivity());
+    headerLine.setBackgroundColor(Color.rgb(230, 234, 224));
+    content.addView(headerLine, new LinearLayout.LayoutParams(-1, dp(1)));
     statusView = text(status, 12, muted);
     statusView.setGravity(Gravity.CENTER);
     statusView.setPadding(0, dp(3), 0, dp(7));
+    statusView.setVisibility(View.GONE);
     statusView.setOnClickListener(
         v -> {
           if (session != null) enter();
@@ -468,11 +505,16 @@ public final class ChatFragment extends Fragment {
     replyParams.setMargins(dp(12), dp(3), dp(12), 0);
     content.addView(replyDraft, replyParams);
     LinearLayout composer = new LinearLayout(getActivity());
-    composer.setGravity(Gravity.BOTTOM);
-    composer.setPadding(dp(8), dp(8), dp(8), dp(8));
-    attach = button("＋", this::pickFile);
-    composer.addView(attach, new LinearLayout.LayoutParams(dp(42), dp(46)));
+    composer.setGravity(Gravity.CENTER_VERTICAL);
+    composer.setPadding(dp(10), dp(7), dp(10), dp(10));
+    LinearLayout composerPill = new LinearLayout(getActivity());
+    composerPill.setGravity(Gravity.CENTER_VERTICAL);
+    composerPill.setPadding(dp(7), dp(4), dp(6), dp(4));
+    composerPill.setBackground(shape(pale, 30));
+    attach = iconButton("＋", "添加照片或文件", this::pickFile);
     input = field("说点什么…", false);
+    input.setBackgroundColor(Color.TRANSPARENT);
+    input.setPadding(dp(5), dp(9), dp(3), dp(9));
     input.setSingleLine(false);
     input.setMaxLines(5);
     input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(4000)});
@@ -494,32 +536,32 @@ public final class ChatFragment extends Fragment {
     LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, -2, 1);
     ip.leftMargin = dp(6);
     ip.rightMargin = dp(6);
-    composer.addView(input, ip);
-    composer.addView(
-        button(
-            "表情",
-            () -> {
-              boolean show = emojiPanel.getVisibility() != View.VISIBLE;
-              if (show) {
-                ((InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE))
-                    .hideSoftInputFromWindow(input.getWindowToken(), 0);
-              }
-              emojiPanel.setVisibility(show ? View.VISIBLE : View.GONE);
-            }),
-        new LinearLayout.LayoutParams(dp(54), dp(46)));
-    voice = button("录音", this::startRecording);
-    composer.addView(voice, new LinearLayout.LayoutParams(dp(54), dp(46)));
-    send = button("发送", this::sendText);
+    composerPill.addView(attach, new LinearLayout.LayoutParams(dp(37), dp(46)));
+    composerPill.addView(input, ip);
+    emojiButton = iconButton("☻", "打开表情", () -> {
+      boolean show = emojiPanel.getVisibility() != View.VISIBLE;
+      if (show) {
+        ((InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE))
+            .hideSoftInputFromWindow(input.getWindowToken(), 0);
+      }
+      emojiPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+    });
+    composerPill.addView(emojiButton, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    voice = iconButton("🎙", "录制语音", this::startRecording);
+    composerPill.addView(voice, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    send = iconButton("➤", "发送消息", this::sendText);
     send.setVisibility(View.GONE);
-    composer.addView(send, new LinearLayout.LayoutParams(dp(54), dp(46)));
+    composerPill.addView(send, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    composer.addView(composerPill, new LinearLayout.LayoutParams(0, -2, 1));
     content.addView(composer);
     input.addTextChangedListener(
         new TextWatcher() {
           public void beforeTextChanged(CharSequence s, int a, int c, int n) {}
 
           public void onTextChanged(CharSequence s, int a, int b, int c) {
-            send.setVisibility(s.toString().trim().isEmpty() ? View.GONE : View.VISIBLE);
-            voice.setVisibility(s.toString().trim().isEmpty() ? View.VISIBLE : View.GONE);
+            boolean empty = s.toString().trim().isEmpty();
+            send.setVisibility(empty ? View.GONE : View.VISIBLE);
+            voice.setVisibility(empty ? View.VISIBLE : View.GONE);
           }
 
           public void afterTextChanged(Editable e) {}
@@ -557,6 +599,7 @@ public final class ChatFragment extends Fragment {
     clearRemoteRenderer();
     clearLocalRenderer();
     main.removeCallbacks(callClock);
+    if (messagePopup != null) { messagePopup.dismiss(); messagePopup = null; }
     if (nicknamePrompt != null) {
       nicknamePrompt.dismiss();
       nicknamePrompt = null;
@@ -572,6 +615,9 @@ public final class ChatFragment extends Fragment {
     adapter = null;
     heading = null;
     subtitle = null;
+    identityBadge = null;
+    onlineDot = null;
+    emojiButton = null;
     statusView = null;
     callPanel = null;
     callButtons = null;
@@ -653,7 +699,16 @@ public final class ChatFragment extends Fragment {
 
   private void setStatus(String s) {
     status = s;
-    if (statusView != null) statusView.setText(s);
+    if (statusView != null) {
+      statusView.setText(s);
+      boolean steady = s.startsWith("已连接") || s.isEmpty();
+      statusView.setVisibility(steady ? View.GONE : View.VISIBLE);
+    }
+    if (onlineDot != null) {
+      boolean connected = s.startsWith("已连接");
+      onlineDot.setTextColor(connected ? Color.rgb(123, 150, 94) : Color.rgb(172, 178, 160));
+      onlineDot.setContentDescription(connected ? "在线" : "连接中");
+    }
   }
 
   private void updateSessionGate() {
@@ -1756,9 +1811,11 @@ public final class ChatFragment extends Fragment {
     updateSessionGate();
     boolean bottom = list.getCount() == 0 || list.getLastVisiblePosition() >= list.getCount() - 2;
     heading.setText(roomName);
-    subtitle.setText(
-        (room.equals("lobby") ? "公共大厅" : ("房号 " + room)) + " · " + members.length() + " 人在线"
-            + (selectedCallTargetName.isEmpty() ? "" : " · 呼叫 " + selectedCallTargetName));
+    subtitle.setText(members.length() + " 人在线");
+    subtitle.setContentDescription(
+        members.length() + " 人在线；点击选择一对一通话对象"
+            + (selectedCallTargetName.isEmpty() ? "" : "；当前呼叫 " + selectedCallTargetName));
+    identityBadge.setText("匿名");
     if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     adapter.notifyDataSetChanged();
@@ -1975,20 +2032,74 @@ public final class ChatFragment extends Fragment {
         caption.setPadding(dp(8), dp(5), dp(8), dp(3));
         card.addView(caption);
         card.setOnClickListener(v -> openMedia(m));
-        card.setOnLongClickListener(v -> { messageMenu(m); return true; });
+        card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
         card.setFocusable(true);
         bubbleView = card;
-      } else if (kind.equals("audio") || kind.equals("video") || kind.equals("file")) {
+      } else if (kind.equals("audio")) {
+        LinearLayout card = vertical();
+        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setPadding(dp(12), dp(9), dp(12), dp(7));
+        card.setContentDescription(nick + "：语音消息，轻触播放");
+        LinearLayout controls = new LinearLayout(getActivity());
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        Button toggle = button("▶", () -> {});
+        toggle.setTextSize(13);
+        toggle.setContentDescription("播放语音");
+        controls.addView(toggle, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        TextView clock = text("0:00", 12, ink);
+        clock.setGravity(Gravity.CENTER_VERTICAL);
+        clock.setPadding(dp(3), 0, dp(5), 0);
+        controls.addView(clock, new LinearLayout.LayoutParams(dp(42), dp(38)));
+        SeekBar seek = new SeekBar(getActivity());
+        seek.setMax(0);
+        seek.setContentDescription("语音播放进度");
+        seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(174, 178, 174)));
+        seek.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(174, 178, 174)));
+        controls.addView(seek, new LinearLayout.LayoutParams(0, dp(38), 1));
+        TextView volume = text("◖))", 14, ink);
+        volume.setGravity(Gravity.CENTER);
+        volume.setContentDescription("媒体音量由设备控制");
+        controls.addView(volume, new LinearLayout.LayoutParams(dp(34), dp(38)));
+        card.addView(controls, new LinearLayout.LayoutParams(-1, dp(40)));
+        String audioInfo = "";
+        if (m.optDouble("duration", 0) > 0)
+          audioInfo = Math.round(m.optDouble("duration")) + " 秒";
+        if (m.optLong("size") > 0) {
+          if (!audioInfo.isEmpty()) audioInfo += " · ";
+          audioInfo += android.text.format.Formatter.formatShortFileSize(getActivity(), m.optLong("size"));
+        }
+        if (!audioInfo.isEmpty()) {
+          TextView meta = text(audioInfo, 10, muted);
+          meta.setPadding(dp(7), dp(3), dp(7), 0);
+          card.addView(meta);
+        }
+        AudioPlayback playback = new AudioPlayback(card, m.optString("id"), m.optLong("size"), toggle, seek, clock);
+        card.setTag(playback);
+        toggle.setOnClickListener(v -> playInlineAudio(m, card));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+          public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+            if (fromUser && activeAudio == playback && player != null)
+              clock.setText(durationLabel(progress));
+          }
+          public void onStartTrackingTouch(SeekBar bar) {}
+          public void onStopTrackingTouch(SeekBar bar) {
+            if (activeAudio == playback && player != null) player.seekTo(bar.getProgress());
+          }
+        });
+        card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
+        card.setFocusable(true);
+        bubbleView = card;
+      } else if (kind.equals("video") || kind.equals("file")) {
         LinearLayout card = new LinearLayout(getActivity());
-        card.setOrientation(kind.equals("audio") ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(13), dp(10), dp(13), dp(10));
         card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
-        String kindName = kind.equals("audio") ? "语音" : kind.equals("video") ? "视频" : "文件";
+        String kindName = kind.equals("video") ? "视频" : "文件";
         card.setContentDescription(nick + "：" + kindName + "，" + (kind.equals("file") ? "轻触保存" : "轻触播放"));
         LinearLayout infoRow = new LinearLayout(getActivity());
         infoRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView glyph = text(kind.equals("audio") ? "♫" : kind.equals("video") ? "▶" : "▤", 20, green);
+        TextView glyph = text(kind.equals("video") ? "▶" : "▤", 20, green);
         glyph.setGravity(Gravity.CENTER);
         glyph.setBackground(shape(mine ? pale : ChatFragment.this.mine, 24));
         infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
@@ -1996,7 +2107,7 @@ public final class ChatFragment extends Fragment {
         details.setPadding(dp(10), 0, dp(4), 0);
         int detailWidth = Math.min(dp(220), Math.max(dp(96),
             getResources().getDisplayMetrics().widthPixels - dp(mine ? 194 : 238)));
-        TextView name = text(m.optString("filename", kind.equals("audio") ? "语音消息" : "媒体文件"), 13, ink);
+        TextView name = text(m.optString("filename", "媒体文件"), 13, ink);
         name.setMaxWidth(detailWidth);
         name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2006,21 +2117,17 @@ public final class ChatFragment extends Fragment {
         TextView meta = text(detail + (kind.equals("file") ? "  ·  点击保存" : "  ·  点击播放"), 10, muted);
         details.addView(meta);
         infoRow.addView(details, new LinearLayout.LayoutParams(detailWidth, -2));
-        if (kind.equals("audio")) {
-          card.addView(infoRow, new LinearLayout.LayoutParams(-1, -2));
-          card.setOnClickListener(v -> playInlineAudio(m, card));
-        } else if (kind.equals("file")) {
+        if (kind.equals("file")) {
           card.addView(infoRow, new LinearLayout.LayoutParams(0, -2, 1f));
           Button save = button("保存", () -> openMedia(m));
           save.setTextSize(12);
           save.setContentDescription("保存文件：" + m.optString("filename", "文件"));
           card.addView(save, new LinearLayout.LayoutParams(dp(62), dp(38)));
-          card.setOnClickListener(v -> openMedia(m));
         } else {
           card.addView(infoRow);
-          card.setOnClickListener(v -> openMedia(m));
         }
-        card.setOnLongClickListener(v -> { messageMenu(m); return true; });
+        card.setOnClickListener(v -> openMedia(m));
+        card.setOnLongClickListener(v -> { messageMenu(m, v); return true; });
         card.setFocusable(true);
         bubbleView = card;
       }
@@ -2036,7 +2143,7 @@ public final class ChatFragment extends Fragment {
       if (!deleted) {
         if (kind.equals("text")) bubbleView.setOnLongClickListener(
             v -> {
-              messageMenu(m);
+              messageMenu(m, v);
               return true;
             });
       }
@@ -2049,49 +2156,99 @@ public final class ChatFragment extends Fragment {
     if (replyDraft != null) replyDraft.setVisibility(View.GONE);
   }
 
-  private void messageMenu(JSONObject m) {
-    boolean mine = m.optBoolean("mine");
+  private void messageMenu(JSONObject m, View anchor) {
+    if (getActivity() == null || root == null || anchor == null || !anchor.isShown()) return;
+    if (messagePopup != null && messagePopup.isShowing()) messagePopup.dismiss();
+    boolean mineMessage = m.optBoolean("mine");
     boolean copyable = m.optString("kind").equals("text");
-    String[] items = mine
-        ? (copyable ? new String[] {"复制", "回复", "删除"} : new String[] {"回复", "删除"})
-        : (copyable ? new String[] {"复制", "回复"} : new String[] {"回复"});
-    int replyIndex = copyable ? 1 : 0;
-    int deleteIndex = replyIndex + 1;
-    new AlertDialog.Builder(getActivity())
-        .setItems(items, (d, w) -> {
-          String value = m.optString("kind").equals("text")
-              ? m.optString("text") : m.optString("filename");
-          if (copyable && w == 0) {
-            ((android.content.ClipboardManager)
-                    getActivity().getSystemService(Context.CLIPBOARD_SERVICE))
-                .setPrimaryClip(ClipData.newPlainText("消息", value));
-            toast("已复制");
-          } else if (w == replyIndex) {
-            if (input != null) {
-              replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
-              if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
-              if (replyText != null) replyText.setText(ReplyDraft.preview(value));
-              if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
-              input.requestFocus();
-            }
-          } else if (mine && w == deleteIndex) {
-            new AlertDialog.Builder(getActivity())
-                .setMessage("删除这条消息？其他成员也会看到删除状态。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("删除", (x, y) -> {
-                  String path = endpoint("delete/") + m.optString("id");
-                  int g = generation;
-                  task(() -> net.api(path, new JSONObject()), v -> {
-                    if (g != generation) return;
-                    core.run("event", "event", new JSONObject()
-                        .put("type", "deleted").put("id", m.optString("id")));
-                    refreshSnapshot(false);
-                  });
-                })
-                .show();
+    ArrayList<String> actions = new ArrayList<>();
+    if (copyable) actions.add("复制");
+    actions.add("回复");
+    if (mineMessage) actions.add("删除");
+
+    LinearLayout menu = new LinearLayout(getActivity());
+    menu.setOrientation(LinearLayout.VERTICAL);
+    menu.setPadding(dp(4), dp(5), dp(4), dp(5));
+    menu.setBackground(shape(bg, 20));
+    menu.setElevation(dp(12));
+    for (String action : actions) {
+      TextView item = text(action, 14, ink);
+      item.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+      item.setPadding(dp(17), 0, dp(17), 0);
+      item.setMinHeight(dp(44));
+      item.setBackground(ripple(Color.TRANSPARENT));
+      menu.addView(item, new LinearLayout.LayoutParams(-1, dp(44)));
+      item.setOnClickListener(v -> {
+        if (messagePopup != null) messagePopup.dismiss();
+        handleMessageAction(m, action);
+      });
+    }
+    int width = dp(176), height = dp(10 + actions.size() * 44);
+    messagePopup = new PopupWindow(menu, width, height, true);
+    messagePopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+    messagePopup.setOutsideTouchable(true);
+    messagePopup.setElevation(dp(12));
+    int[] location = new int[2];
+    anchor.getLocationOnScreen(location);
+    int screenWidth = getResources().getDisplayMetrics().widthPixels;
+    int screenHeight = getResources().getDisplayMetrics().heightPixels;
+    int x = Math.max(dp(8), Math.min(location[0] + anchor.getWidth() - width, screenWidth - width - dp(8)));
+    int y = location[1] + Math.max(0, (anchor.getHeight() - height) / 2);
+    if (y + height > screenHeight - dp(24)) y = location[1] - height + dp(12);
+    y = Math.max(dp(28), Math.min(y, screenHeight - height - dp(28)));
+    messagePopup.showAtLocation(root, Gravity.TOP | Gravity.START, x, y);
+  }
+
+  private void handleMessageAction(JSONObject m, String action) {
+    String value = m.optString("kind").equals("text")
+        ? m.optString("text") : m.optString("filename");
+    if (action.equals("复制")) {
+      ((android.content.ClipboardManager)
+              getActivity().getSystemService(Context.CLIPBOARD_SERVICE))
+          .setPrimaryClip(ClipData.newPlainText("消息", value));
+      toast("已复制");
+    } else if (action.equals("回复")) {
+      if (input != null) {
+        replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
+        if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
+        if (replyText != null) replyText.setText(ReplyDraft.preview(value));
+        if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
+        input.requestFocus();
+        input.post(() -> {
+          EditText target = input;
+          if (target != null && target.isAttachedToWindow()) {
+            InputMethodManager keyboard = (InputMethodManager)
+                target.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
           }
-        })
-        .show();
+        });
+      }
+    } else if (action.equals("删除") && m.optBoolean("mine")) {
+      new AlertDialog.Builder(getActivity())
+          .setMessage("删除这条消息？其他成员也会看到删除状态。")
+          .setNegativeButton("取消", null)
+          .setPositiveButton("删除", (x, y) -> {
+            String path = endpoint("delete/") + m.optString("id");
+            int g = generation;
+            task(() -> net.api(path, new JSONObject()), v -> {
+              if (g != generation) return;
+              core.run("event", "event", new JSONObject()
+                  .put("type", "deleted").put("id", m.optString("id")));
+              refreshSnapshot(false);
+            });
+          })
+          .show();
+    }
+  }
+
+  private android.graphics.drawable.Drawable ripple(int color) {
+    android.util.TypedValue value = new android.util.TypedValue();
+    getActivity().getTheme().resolveAttribute(android.R.attr.selectableItemBackground, value, true);
+    try {
+      return getActivity().getDrawable(value.resourceId);
+    } catch (Exception ignored) {
+      return new ColorDrawable(color);
+    }
   }
 
   private void pickFile() {
@@ -2371,13 +2528,16 @@ public final class ChatFragment extends Fragment {
 
   private static final class AudioPlayback {
     final LinearLayout card;
-    final File file;
+    final String messageId;
+    final long expectedSize;
     final Button toggle;
     final SeekBar seek;
     final TextView clock;
-    boolean ready = false;
-    AudioPlayback(LinearLayout card, File file, Button toggle, SeekBar seek, TextView clock) {
-      this.card = card; this.file = file; this.toggle = toggle; this.seek = seek; this.clock = clock;
+    File file;
+    boolean ready = false, loading = false;
+    AudioPlayback(LinearLayout card, String messageId, long expectedSize, Button toggle, SeekBar seek, TextView clock) {
+      this.card = card; this.messageId = messageId; this.expectedSize = expectedSize;
+      this.toggle = toggle; this.seek = seek; this.clock = clock;
     }
   }
 
@@ -2406,69 +2566,46 @@ public final class ChatFragment extends Fragment {
 
   private void playInlineAudio(JSONObject message, LinearLayout card) {
     Object tag = card.getTag();
-    if (tag instanceof AudioPlayback) {
-      AudioPlayback playback = (AudioPlayback) tag;
+    if (!(tag instanceof AudioPlayback)) return;
+    AudioPlayback playback = (AudioPlayback) tag;
+    if (playback.loading) return;
+    if (playback.file != null) {
       if (activeAudio == playback && player != null) {
         if (player.isPlaying()) { player.pause(); playback.toggle.setText("▶"); }
-        else { player.start(); playback.toggle.setText("Ⅱ"); scheduleAudioProgress(playback); }
+        else {
+          if (player.getCurrentPosition() >= playback.seek.getMax()) player.seekTo(0);
+          player.start(); playback.toggle.setText("Ⅱ"); scheduleAudioProgress(playback);
+        }
       } else startInlineAudio(playback);
       return;
     }
-    if ("loading".equals(tag)) return;
-    card.setTag("loading");
-    String path = endpoint("download/") + message.optString("id");
+    playback.loading = true;
+    playback.toggle.setText("…");
+    String path = endpoint("download/") + playback.messageId;
     int g = generation;
     setStatus("正在读取语音…");
     scoped(() -> {
       try {
         return net.download(path, Math.min(100L * 1024 * 1024,
-            Math.max(1, message.optLong("size"))) + 1024);
+            Math.max(1, playback.expectedSize)) + 1024);
       } catch (Exception e) {
-        main.post(() -> { if (g == generation && card.isAttachedToWindow()) card.setTag(null); });
+        main.post(() -> {
+          if (g == generation && card.isAttachedToWindow()) {
+            playback.loading = false;
+            playback.toggle.setText("▶");
+          }
+        });
         throw e;
       }
     }, value -> {
       File file = (File) value;
+      playback.loading = false;
       if (g != generation || !started || !card.isAttachedToWindow()) {
-        card.setTag(null);
+        playback.toggle.setText("▶");
         file.delete();
         return;
       }
-      LinearLayout controls = new LinearLayout(getActivity());
-      controls.setGravity(Gravity.CENTER_VERTICAL);
-      Button toggle = button("▶", () -> {});
-      toggle.setTextSize(13);
-      controls.addView(toggle, new LinearLayout.LayoutParams(dp(42), dp(38)));
-      SeekBar seek = new SeekBar(getActivity());
-      seek.setMax(0);
-      controls.addView(seek, new LinearLayout.LayoutParams(0, dp(38), 1));
-      TextView clock = text("0:00 / 0:00", 10, muted);
-      clock.setGravity(Gravity.CENTER_VERTICAL);
-      controls.addView(clock, new LinearLayout.LayoutParams(dp(78), -2));
-      card.addView(controls, new LinearLayout.LayoutParams(-1, dp(44)));
-      AudioPlayback playback = new AudioPlayback(card, file, toggle, seek, clock);
-      card.setTag(playback);
-      toggle.setOnClickListener(v -> {
-        if (activeAudio == playback && player != null) {
-          if (!playback.ready) return;
-          if (player.isPlaying()) { player.pause(); toggle.setText("▶"); }
-          else {
-            if (player.getCurrentPosition() >= playback.seek.getMax()) player.seekTo(0);
-            player.start(); toggle.setText("Ⅱ"); scheduleAudioProgress(playback);
-          }
-        } else startInlineAudio(playback);
-      });
-      seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-        public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-          if (fromUser && activeAudio == playback && player != null) {
-            clock.setText(durationLabel(progress) + " / " + durationLabel(bar.getMax()));
-          }
-        }
-        public void onStartTrackingTouch(SeekBar bar) {}
-        public void onStopTrackingTouch(SeekBar bar) {
-          if (activeAudio == playback && player != null) player.seekTo(bar.getProgress());
-        }
-      });
+      playback.file = file;
       startInlineAudio(playback);
     });
   }
@@ -2479,6 +2616,7 @@ public final class ChatFragment extends Fragment {
     try {
       player = new MediaPlayer();
       MediaPlayer prepared = player;
+      if (playback.file == null) throw new IOException("语音文件尚未读取");
       prepared.setDataSource(playback.file.getAbsolutePath());
       prepared.setAudioAttributes(new AudioAttributes.Builder()
           .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -2487,7 +2625,7 @@ public final class ChatFragment extends Fragment {
         if (player != prepared || activeAudio != playback) return;
         playback.ready = true;
         playback.seek.setMax(mp.getDuration());
-        playback.clock.setText(durationLabel(0) + " / " + durationLabel(mp.getDuration()));
+        playback.clock.setText(durationLabel(0));
         playback.toggle.setText("Ⅱ");
         mp.start();
         scheduleAudioProgress(playback);
@@ -2497,7 +2635,7 @@ public final class ChatFragment extends Fragment {
         if (audioProgress != null) main.removeCallbacks(audioProgress);
         audioProgress = null;
         playback.seek.setProgress(playback.seek.getMax());
-        playback.clock.setText(durationLabel(playback.seek.getMax()) + " / " + durationLabel(playback.seek.getMax()));
+        playback.clock.setText(durationLabel(playback.seek.getMax()));
         playback.toggle.setText("▶");
       });
       prepared.setOnErrorListener((mp, what, extra) -> {
@@ -2523,7 +2661,7 @@ public final class ChatFragment extends Fragment {
         if (player.isPlaying()) {
           int position = player.getCurrentPosition();
           playback.seek.setProgress(position);
-          playback.clock.setText(durationLabel(position) + " / " + durationLabel(playback.seek.getMax()));
+          playback.clock.setText(durationLabel(position));
           main.postDelayed(this, 300);
         }
       }
