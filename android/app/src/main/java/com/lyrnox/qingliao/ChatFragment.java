@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.*;
 import android.graphics.drawable.*;
+import android.util.LruCache;
 import android.media.*;
 import android.net.Uri;
 import android.os.*;
@@ -49,6 +50,10 @@ public final class ChatFragment extends Fragment {
       members = new JSONArray(),
       emojiData = new JSONArray();
   private final Map<String, Drawable> emojiDrawables = new HashMap<>();
+  private final LruCache<String, Bitmap> inlineImageCache = new LruCache<>(8 * 1024 * 1024) {
+    @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount(); }
+  };
+  private final Set<String> inlineImagesLoading = Collections.synchronizedSet(new HashSet<>());
   private FrameLayout root, sessionOverlay, chatArea, drawerOverlay;
   private LinearLayout drawerPanel;
   private LinearLayout content, emojiPanel, sessionGate;
@@ -78,6 +83,9 @@ public final class ChatFragment extends Fragment {
   private long recordStart;
   private AlertDialog recordingDialog, nicknamePrompt;
   private MediaPlayer player;
+  private AudioPlayback activeAudio;
+  private Runnable audioProgress;
+  private int audioGeneration = 0;
   private File exportFile;
   private String exportName;
   private NativeCallSession nativeCall;
@@ -140,6 +148,17 @@ public final class ChatFragment extends Fragment {
       pale = Color.rgb(234, 240, 227),
       mine = Color.rgb(215, 229, 188),
       muted = Color.rgb(112, 120, 109);
+
+  private GradientDrawable messageShape(int color, boolean mine, boolean grouped, boolean groupEnd) {
+    GradientDrawable d = new GradientDrawable();
+    d.setColor(color);
+    float full = dp(21), small = dp(11);
+    float tl = full, tr = full, br = full, bl = full;
+    if (grouped) { if (mine) tr = small; else tl = small; }
+    if (!groupEnd) { if (mine) br = small; else bl = small; }
+    d.setCornerRadii(new float[] {tl, tl, tr, tr, br, br, bl, bl});
+    return d;
+  }
 
   private GradientDrawable shape(int color, int radius) {
     GradientDrawable d = new GradientDrawable();
@@ -461,6 +480,17 @@ public final class ChatFragment extends Fragment {
         android.text.InputType.TYPE_CLASS_TEXT
             | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+    input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+        | android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+    input.setOnEditorActionListener((v, actionId, event) -> {
+      boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+          && event.getAction() == KeyEvent.ACTION_DOWN && !event.isShiftPressed();
+      if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND || enter) {
+        sendText();
+        return true;
+      }
+      return false;
+    });
     LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, -2, 1);
     ip.leftMargin = dp(6);
     ip.rightMargin = dp(6);
@@ -573,6 +603,8 @@ public final class ChatFragment extends Fragment {
   public void onDestroy() {
     dead = true;
     main.removeCallbacksAndMessages(null);
+    inlineImageCache.evictAll();
+    inlineImagesLoading.clear();
     stopNativeCall();
     disconnect();
     net.close();
@@ -1492,6 +1524,7 @@ public final class ChatFragment extends Fragment {
       observedCall = null;
       renderCallPanel();
       room = rid;
+      inlineImageCache.evictAll();
       roomName = rid.equals("lobby") ? "公共大厅" : "私密房间";
       next = null;
       core.run("reset", "room", rid);
@@ -1907,25 +1940,84 @@ public final class ChatFragment extends Fragment {
       }
       TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd);
       bubble.setLineSpacing(dp(3), 1);
-      bubble.setMaxWidth(
-          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 126)));
+      bubble.setMaxWidth(Math.min(dp(580),
+          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 126))));
       bubble.setPadding(dp(15), dp(11), dp(15), dp(11));
       String kind = m.optString("kind");
-      if (deleted) bubble.setText("消息已删除");
-      else if (kind.equals("text")) bubble.setText(rich(m.optString("text")));
-      else
-        bubble.setText(
-            (kind.equals("image")
-                    ? "图片"
-                    : kind.equals("audio") ? "语音" : kind.equals("video") ? "视频" : "文件")
-                + "  ·  "
-                + m.optString("filename", "媒体")
-                + "\n"
-                + android.text.format.Formatter.formatShortFileSize(
-                    getActivity(), m.optLong("size"))
-                + "  ·  点击打开");
-      bubble.setContentDescription(nick + "：" + bubble.getText());
-      wrap.addView(bubble);
+      View bubbleView = bubble;
+      if (deleted) {
+        bubble.setText("消息已删除");
+        bubble.setContentDescription(nick + "：消息已删除");
+      } else if (kind.equals("text")) {
+        bubble.setText(rich(m.optString("text")));
+        bubble.setContentDescription(nick + "：" + m.optString("text"));
+      } else if (kind.equals("image")) {
+        LinearLayout card = vertical();
+        card.setBackground(messageShape(mine ? this.mine : pale, mine, grouped, groupEnd));
+        card.setPadding(dp(6), dp(6), dp(6), dp(6));
+        card.setContentDescription(nick + "：图片，轻触查看大图");
+        FrameLayout imageFrame = new FrameLayout(getActivity());
+        int previewWidth = Math.min(dp(280), Math.max(dp(190),
+            getResources().getDisplayMetrics().widthPixels - dp(mine ? 132 : 164)));
+        imageFrame.setLayoutParams(new LinearLayout.LayoutParams(previewWidth, dp(176)));
+        imageFrame.setBackground(shape(pale, 16));
+        imageFrame.setClipToOutline(true);
+        ImageView preview = new ImageView(getActivity());
+        preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        preview.setContentDescription(m.optString("filename", "聊天图片"));
+        imageFrame.addView(preview, new FrameLayout.LayoutParams(-1, -1));
+        TextView placeholder = text("▧", 28, green);
+        placeholder.setGravity(Gravity.CENTER);
+        imageFrame.addView(placeholder, new FrameLayout.LayoutParams(-1, -1));
+        loadInlineImage(preview, placeholder, m.optString("id"), endpoint("download/") + m.optString("id"), m.optLong("size"));
+        card.addView(imageFrame);
+        TextView caption = text(m.optString("filename", "图片") + fileSizeSuffix(m.optLong("size")), 10, muted);
+        caption.setPadding(dp(8), dp(5), dp(8), dp(3));
+        card.addView(caption);
+        card.setOnClickListener(v -> openMedia(m));
+        card.setOnLongClickListener(v -> { messageMenu(m); return true; });
+        card.setFocusable(true);
+        bubbleView = card;
+      } else if (kind.equals("audio") || kind.equals("video") || kind.equals("file")) {
+        LinearLayout card = new LinearLayout(getActivity());
+        card.setOrientation(kind.equals("audio") ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(13), dp(10), dp(13), dp(10));
+        card.setBackground(messageShape(mine ? this.mine : pale, mine, grouped, groupEnd));
+        String kindName = kind.equals("audio") ? "语音" : kind.equals("video") ? "视频" : "文件";
+        card.setContentDescription(nick + "：" + kindName + "，" + (kind.equals("file") ? "轻触保存" : "轻触播放"));
+        LinearLayout infoRow = new LinearLayout(getActivity());
+        infoRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView glyph = text(kind.equals("audio") ? "♫" : kind.equals("video") ? "▶" : "▤", 20, green);
+        glyph.setGravity(Gravity.CENTER);
+        glyph.setBackground(shape(mine ? pale : this.mine, 24));
+        infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout details = vertical();
+        details.setPadding(dp(10), 0, dp(4), 0);
+        int detailWidth = Math.min(dp(220), Math.max(dp(96),
+            getResources().getDisplayMetrics().widthPixels - dp(mine ? 194 : 238)));
+        TextView name = text(m.optString("filename", kind.equals("audio") ? "语音消息" : "媒体文件"), 13, ink);
+        name.setMaxWidth(detailWidth);
+        name.setMaxLines(2);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        details.addView(name);
+        String detail = android.text.format.Formatter.formatShortFileSize(getActivity(), m.optLong("size"));
+        if (m.optDouble("duration", 0) > 0) detail += "  ·  " + Math.round(m.optDouble("duration")) + " 秒";
+        TextView meta = text(detail + (kind.equals("file") ? "  ·  点击保存" : "  ·  点击播放"), 10, muted);
+        details.addView(meta);
+        infoRow.addView(details, new LinearLayout.LayoutParams(detailWidth, -2));
+        if (kind.equals("audio")) {
+          card.addView(infoRow, new LinearLayout.LayoutParams(-1, -2));
+          card.setOnClickListener(v -> playInlineAudio(m, card));
+        } else {
+          card.addView(infoRow);
+          card.setOnClickListener(v -> openMedia(m));
+        }
+        card.setOnLongClickListener(v -> { messageMenu(m); return true; });
+        card.setFocusable(true);
+        bubbleView = card;
+      }
+      wrap.addView(bubbleView);
       if (groupEnd) {
         TextView stamp = text(time(ts, "HH:mm"), 10, muted);
         stamp.setPadding(dp(12), dp(3), dp(12), 0);
@@ -1935,12 +2027,11 @@ public final class ChatFragment extends Fragment {
       messageRow.addView(wrap, wp);
       row.addView(messageRow, new LinearLayout.LayoutParams(-1, -2));
       if (!deleted) {
-        bubble.setOnLongClickListener(
+        if (kind.equals("text")) bubbleView.setOnLongClickListener(
             v -> {
               messageMenu(m);
               return true;
             });
-        if (!kind.equals("text")) bubble.setOnClickListener(v -> openMedia(m));
       }
       return row;
     }
@@ -1953,51 +2044,46 @@ public final class ChatFragment extends Fragment {
 
   private void messageMenu(JSONObject m) {
     boolean mine = m.optBoolean("mine");
+    boolean copyable = m.optString("kind").equals("text");
+    String[] items = mine
+        ? (copyable ? new String[] {"复制", "回复", "删除"} : new String[] {"回复", "删除"})
+        : (copyable ? new String[] {"复制", "回复"} : new String[] {"回复"});
+    int replyIndex = copyable ? 1 : 0;
+    int deleteIndex = replyIndex + 1;
     new AlertDialog.Builder(getActivity())
-        .setItems(
-            mine ? new String[] {"复制", "回复", "删除"} : new String[] {"复制", "回复"},
-            (d, w) -> {
-              String value =
-                  m.optString("kind").equals("text")
-                      ? m.optString("text")
-                      : m.optString("filename");
-              if (w == 0) {
-                ((android.content.ClipboardManager)
-                        getActivity().getSystemService(Context.CLIPBOARD_SERVICE))
-                    .setPrimaryClip(ClipData.newPlainText("消息", value));
-                toast("已复制");
-              } else if (w == 1) {
-                if (input != null) {
-                  replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
-                  if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
-                  if (replyText != null) replyText.setText(ReplyDraft.preview(value));
-                  if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
-                  input.requestFocus();
-                }
-              } else
-                new AlertDialog.Builder(getActivity())
-                    .setMessage("删除这条消息？其他成员也会看到删除状态。")
-                    .setNegativeButton("取消", null)
-                    .setPositiveButton(
-                        "删除",
-                        (x, y) -> {
-                          String path = endpoint("delete/") + m.optString("id");
-                          int g = generation;
-                          task(
-                              () -> net.api(path, new JSONObject()),
-                              v -> {
-                                if (g != generation) return;
-                                core.run(
-                                    "event",
-                                    "event",
-                                    new JSONObject()
-                                        .put("type", "deleted")
-                                        .put("id", m.optString("id")));
-                                refreshSnapshot(false);
-                              });
-                        })
-                    .show();
-            })
+        .setItems(items, (d, w) -> {
+          String value = m.optString("kind").equals("text")
+              ? m.optString("text") : m.optString("filename");
+          if (copyable && w == 0) {
+            ((android.content.ClipboardManager)
+                    getActivity().getSystemService(Context.CLIPBOARD_SERVICE))
+                .setPrimaryClip(ClipData.newPlainText("消息", value));
+            toast("已复制");
+          } else if (w == replyIndex) {
+            if (input != null) {
+              replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
+              if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
+              if (replyText != null) replyText.setText(ReplyDraft.preview(value));
+              if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
+              input.requestFocus();
+            }
+          } else if (mine && w == deleteIndex) {
+            new AlertDialog.Builder(getActivity())
+                .setMessage("删除这条消息？其他成员也会看到删除状态。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (x, y) -> {
+                  String path = endpoint("delete/") + m.optString("id");
+                  int g = generation;
+                  task(() -> net.api(path, new JSONObject()), v -> {
+                    if (g != generation) return;
+                    core.run("event", "event", new JSONObject()
+                        .put("type", "deleted").put("id", m.optString("id")));
+                    refreshSnapshot(false);
+                  });
+                })
+                .show();
+          }
+        })
         .show();
   }
 
@@ -2276,10 +2362,221 @@ public final class ChatFragment extends Fragment {
     }
   }
 
+  private static final class AudioPlayback {
+    final LinearLayout card;
+    final File file;
+    final Button toggle;
+    final SeekBar seek;
+    final TextView clock;
+    boolean ready = false;
+    AudioPlayback(LinearLayout card, File file, Button toggle, SeekBar seek, TextView clock) {
+      this.card = card; this.file = file; this.toggle = toggle; this.seek = seek; this.clock = clock;
+    }
+  }
+
   private void stopPlayer() {
+    audioGeneration++;
+    if (audioProgress != null) main.removeCallbacks(audioProgress);
+    audioProgress = null;
     if (player != null) {
+      try { player.stop(); } catch (RuntimeException ignored) {}
       player.release();
       player = null;
+    }
+    if (activeAudio != null) {
+      activeAudio.ready = false;
+      activeAudio.toggle.setText("▶");
+      activeAudio.seek.setProgress(0);
+      activeAudio.clock.setText(durationLabel(0) + " / " + durationLabel(activeAudio.seek.getMax()));
+    }
+    activeAudio = null;
+  }
+
+  private String durationLabel(int millis) {
+    int seconds = Math.max(0, millis / 1000);
+    return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
+  }
+
+  private void playInlineAudio(JSONObject message, LinearLayout card) {
+    Object tag = card.getTag();
+    if (tag instanceof AudioPlayback) {
+      AudioPlayback playback = (AudioPlayback) tag;
+      if (activeAudio == playback && player != null) {
+        if (player.isPlaying()) { player.pause(); playback.toggle.setText("▶"); }
+        else { player.start(); playback.toggle.setText("Ⅱ"); scheduleAudioProgress(playback); }
+      } else startInlineAudio(playback);
+      return;
+    }
+    if ("loading".equals(tag)) return;
+    card.setTag("loading");
+    String path = endpoint("download/") + message.optString("id");
+    int g = generation;
+    setStatus("正在读取语音…");
+    scoped(() -> {
+      try {
+        return net.download(path, Math.min(100L * 1024 * 1024,
+            Math.max(1, message.optLong("size"))) + 1024);
+      } catch (Exception e) {
+        main.post(() -> { if (g == generation && card.isAttachedToWindow()) card.setTag(null); });
+        throw e;
+      }
+    }, value -> {
+      File file = (File) value;
+      if (g != generation || !started || !card.isAttachedToWindow()) {
+        card.setTag(null);
+        file.delete();
+        return;
+      }
+      LinearLayout controls = new LinearLayout(getActivity());
+      controls.setGravity(Gravity.CENTER_VERTICAL);
+      Button toggle = button("▶", () -> {});
+      toggle.setTextSize(13);
+      controls.addView(toggle, new LinearLayout.LayoutParams(dp(42), dp(38)));
+      SeekBar seek = new SeekBar(getActivity());
+      seek.setMax(0);
+      controls.addView(seek, new LinearLayout.LayoutParams(0, dp(38), 1));
+      TextView clock = text("0:00 / 0:00", 10, muted);
+      clock.setGravity(Gravity.CENTER_VERTICAL);
+      controls.addView(clock, new LinearLayout.LayoutParams(dp(78), -2));
+      card.addView(controls, new LinearLayout.LayoutParams(-1, dp(44)));
+      AudioPlayback playback = new AudioPlayback(card, file, toggle, seek, clock);
+      card.setTag(playback);
+      toggle.setOnClickListener(v -> {
+        if (activeAudio == playback && player != null) {
+          if (!playback.ready) return;
+          if (player.isPlaying()) { player.pause(); toggle.setText("▶"); }
+          else {
+            if (player.getCurrentPosition() >= playback.seek.getMax()) player.seekTo(0);
+            player.start(); toggle.setText("Ⅱ"); scheduleAudioProgress(playback);
+          }
+        } else startInlineAudio(playback);
+      });
+      seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+          if (fromUser && activeAudio == playback && player != null) {
+            clock.setText(durationLabel(progress) + " / " + durationLabel(bar.getMax()));
+          }
+        }
+        public void onStartTrackingTouch(SeekBar bar) {}
+        public void onStopTrackingTouch(SeekBar bar) {
+          if (activeAudio == playback && player != null) player.seekTo(bar.getProgress());
+        }
+      });
+      startInlineAudio(playback);
+    });
+  }
+
+  private void startInlineAudio(AudioPlayback playback) {
+    stopPlayer();
+    activeAudio = playback;
+    try {
+      player = new MediaPlayer();
+      MediaPlayer prepared = player;
+      prepared.setDataSource(playback.file.getAbsolutePath());
+      prepared.setAudioAttributes(new AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+      prepared.setOnPreparedListener(mp -> {
+        if (player != prepared || activeAudio != playback) return;
+        playback.ready = true;
+        playback.seek.setMax(mp.getDuration());
+        playback.clock.setText(durationLabel(0) + " / " + durationLabel(mp.getDuration()));
+        playback.toggle.setText("Ⅱ");
+        mp.start();
+        scheduleAudioProgress(playback);
+      });
+      prepared.setOnCompletionListener(mp -> {
+        if (activeAudio != playback) return;
+        if (audioProgress != null) main.removeCallbacks(audioProgress);
+        audioProgress = null;
+        playback.seek.setProgress(playback.seek.getMax());
+        playback.clock.setText(durationLabel(playback.seek.getMax()) + " / " + durationLabel(playback.seek.getMax()));
+        playback.toggle.setText("▶");
+      });
+      prepared.setOnErrorListener((mp, what, extra) -> {
+        if (activeAudio == playback) {
+          toast("此音频无法在设备上播放");
+          stopPlayer();
+        }
+        return true;
+      });
+      prepared.prepareAsync();
+    } catch (Exception e) {
+      stopPlayer();
+      toast("此音频无法在设备上播放");
+    }
+  }
+
+  private void scheduleAudioProgress(AudioPlayback playback) {
+    if (audioProgress != null) main.removeCallbacks(audioProgress);
+    final int token = audioGeneration;
+    audioProgress = new Runnable() {
+      @Override public void run() {
+        if (token != audioGeneration || player == null || activeAudio != playback) return;
+        if (player.isPlaying()) {
+          int position = player.getCurrentPosition();
+          playback.seek.setProgress(position);
+          playback.clock.setText(durationLabel(position) + " / " + durationLabel(playback.seek.getMax()));
+          main.postDelayed(this, 300);
+        }
+      }
+    };
+    main.post(audioProgress);
+  }
+
+  private String fileSizeSuffix(long bytes) {
+    return bytes > 0 && getActivity() != null
+        ? " · " + android.text.format.Formatter.formatShortFileSize(getActivity(), bytes)
+        : "";
+  }
+
+  private void loadInlineImage(ImageView target, TextView placeholder, String id, String path, long expectedBytes) {
+    final String imageKey = room + ":" + id;
+    target.setTag(imageKey);
+    if (id.isEmpty() || expectedBytes <= 0 || expectedBytes > 10L * 1024 * 1024) return;
+    Bitmap cached = inlineImageCache.get(imageKey);
+    if (cached != null) {
+      target.setImageBitmap(cached);
+      placeholder.setVisibility(View.GONE);
+      return;
+    }
+    if (!inlineImagesLoading.add(imageKey)) return;
+    final int requestGeneration = generation;
+    try {
+      io.execute(() -> {
+        Bitmap bitmap = null;
+        File file = null;
+        try {
+          file = net.download(path, Math.min(10L * 1024 * 1024, expectedBytes + 1024));
+          BitmapFactory.Options bounds = new BitmapFactory.Options();
+          bounds.inJustDecodeBounds = true;
+          BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+          if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+            int sample = 1;
+            while (bounds.outWidth / sample > 800 || bounds.outHeight / sample > 800) sample *= 2;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            options.inPreferredConfig = Bitmap.Config.RGB_565;
+            bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+          }
+        } catch (Exception ignored) {
+          // Keep the lightweight placeholder; tapping the card still uses the existing viewer.
+        } finally {
+          if (file != null) file.delete();
+        }
+        final Bitmap decoded = bitmap;
+        main.post(() -> {
+          inlineImagesLoading.remove(imageKey);
+          if (decoded == null || dead || requestGeneration != generation
+              || target.getTag() == null || !imageKey.equals(target.getTag())
+              || !target.isAttachedToWindow()) return;
+          inlineImageCache.put(imageKey, decoded);
+          target.setImageBitmap(decoded);
+          placeholder.setVisibility(View.GONE);
+        });
+      });
+    } catch (RejectedExecutionException ignored) {
+      inlineImagesLoading.remove(imageKey);
     }
   }
 
