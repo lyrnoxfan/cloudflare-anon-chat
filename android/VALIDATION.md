@@ -134,3 +134,12 @@ SDK、NDK、构建缓存、真实凭据和本机路径配置未装入源码归�
 - 应用源码提交 `225f3c02d009ce319c3b430536730dfbee0b0bb5` 已直接推到 `main`，没有 PR。GitHub Actions 手动运行 `40686379701` 成功，checkout 的 `headSha` 与该源码提交完全一致；构建/lint 与 APK/checksum、lint 证据 artifact 上传步骤均通过：[运行记录](https://github.com/lyrnoxfan/cloudflare-anon-chat/actions/runs/40686379701)。
 - 从此次 Actions 下载并核验的 APK 为 `com.lyrnox.qingliao` 0.1.9 / versionCode 10，大小 29,099,079 bytes；artifact `SHA256SUMS` 与重算结果一致，SHA-256 为 `c9bf84d2475be66d2832dcedd2b8acbc620d1111f317b1d5ac6abd7000d2a2d5`。`aapt dump badging` 与 `apksigner verify` 核实包元数据及 v2 debug 签名。Actions APK 是最终侧载交付文件；本地独立重建的 APK 哈希不同，故不混用。它仍是 Android Debug 证书签名、非正式 release 签名。
 - 源码 ZIP 从 `main` 的 Android 子树导出，附验证记录，排除 `deliver/`、历史 APK 发布目录、机器配置/缓存和凭据；压缩包完整性检查通过。它基于 app 源码提交 `225f3c0`，随后只为记录 Actions 收据更新了验证文档，未改 app 源码。
+
+## 0.2.0 原生通话面板与媒体控制改进 — 2026-10-28
+
+- 应用源码提交 `3a21130fe3d32f70c58dbc45471086a94ba0fc94` 基于 `main` 的 0.1.9 (`225f3c0`)。在保留已有房间导航、房号加入/创建、成员列表、消息分组、引用回复和附件/录音路径的基础上，改进原生通话面板：显示语音/视频、单人/多人、加入人数和已通话时长；视频时并列呈现本地预览与远端画面；提供麦克风、摄像头、镜头切换、拒绝/接听/加入和挂断控制。窄屏控制区可横向滚动；通话终止或失败时清理本地/远端渲染器。Camera2 前后镜头切换保留现有 Java/WebRTC 媒体链路。
+- 对照网页 `public/call.js` 和 `public/style.css` 的来电/通话控件与淡绿浅色风格。该轮针对通话面板补充原生交互，并非完整网页视觉或功能平移。架构仍为单 Activity、原生 Fragment/View；Java 负责 UI、HTTPS/网络和 WebRTC，C++ Engine 负责既有协议/消息/通话状态验证；本轮没有改 C++ 源码。
+- 本机 Android 校验：JDK 17 / Android SDK 35 / NDK 27.2.12479018 / CMake 3.22.1，命令 `ANDROID_HOME=/home/user/android-sdk ANDROID_SDK_ROOT=/home/user/android-sdk ./gradlew --no-daemon --max-workers=2 :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 成功，app 与 AndroidTest APK 均构建，lint 完成。Instrumentation 只是构建，未在设备运行。C++ 主机测试以 GCC ASan/UBSan 构建并由 CTest 执行，1/1 通过且无 sanitizer 报告；本轮没有变更 C++ 源码。
+- GitHub Actions `40689270288` 成功，运行 `Build and lint (not device acceptance)` 及 APK/checksum 与 lint 证据上传步骤均通过，且 checkout 的 `headSha` 与应用提交一致。运行记录：[GitHub Actions](https://github.com/lyrnoxfan/cloudflare-anon-chat/actions/runs/40689270288)。Actions APK `com.lyrnox.qingliao`，0.2.0 / versionCode 11，大小 29,099,075 bytes；workflow 的 `SHA256SUMS` 与重新计算一致：`dbcb8dfa5765d793b71883c5c56d0b6cdca64bd4ac2c568a36a0119e77bd55d4`。本地独立构建与 Actions APK 哈希不一致，交付以该 Actions 产物为准。Debug 签名，不是发布签名。
+- 限制：无可用 adb/Android emulator/KVM，故本版没有安装启动、实际 UI 截图或 instrumentation 执行；真实聊天、相机/麦克风设备行为及双端实时音视频未验收。用户提供的截图指出昵称页处 `chat.lyrnox.com` 无法解析；此轮不访问线上服务，也没有 Cloudflare 部署或远端数据改动。原有 0.1.1 安装和数据未动，`deliver/` 未修改。
+- 这是一组可构建、经本地单元/主机测试并通过 Actions 的增量实现，不等于 G29 已完成：整套网页 UI/功能完全对齐和真实设备/双端通话验收仍未完成。
