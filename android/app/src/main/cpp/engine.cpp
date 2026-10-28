@@ -11,6 +11,28 @@ size_t Engine::units(const std::string& s){
 std::string Engine::validText(const J& v,size_t max,size_t min){if(!v.is_string())throw std::runtime_error("请输入文字");auto s=v.get<std::string>();auto first=s.find_first_not_of(" \n\r\t");if(first==std::string::npos)throw std::runtime_error("内容不能为空");auto last=s.find_last_not_of(" \n\r\t");if(units(s)>max)throw std::runtime_error("内容超过长度限制");s=s.substr(first,last-first+1);if(units(s)<min)throw std::runtime_error("内容太短");return s;}
 void Engine::merge(const J& m){if(!m.is_object()||!m.contains("id")||!m["id"].is_string()||!m.contains("created")||!m["created"].is_number_integer())throw std::runtime_error("消息格式异常");auto id=m["id"].get<std::string>();if(id.size()>80)throw std::runtime_error("消息标识异常");J copy=m;if(m.value("deleted",0)!=0)deleted.insert(id);if(deleted.count(id)){copy["deleted"]=1;copy["text"]=nullptr;}messages[id]=copy;}
 J Engine::command(const J& in){auto op=in.at("op").get<std::string>();
+ if(op=="session_state"){return {{"phase",sessionPhase},{"active",sessionPhase=="active"},{"showGate",sessionPhase!="active"},{"contentVisible",sessionPhase=="active"}};}
+ if(op=="session_required"){sessionPhase="required";sessionId.clear();sessionNickname.clear();sessionExpires=0;return {{"phase",sessionPhase},{"showGate",true},{"contentVisible",false}};}
+ if(op=="session_accept"){
+  const auto& s=in.at("session");if(!s.is_object())throw std::runtime_error("会话响应格式异常");
+  auto id=s.at("id");
+  if(!id.is_string())throw std::runtime_error("会话标识异常");
+  auto sid=id.get<std::string>();
+  if(sid.size()!=36)throw std::runtime_error("会话标识异常");
+  for(size_t i=0;i<sid.size();++i){
+   if(i==8||i==13||i==18||i==23){
+    if(sid[i]!='-')throw std::runtime_error("会话标识异常");
+   }else if(!std::isxdigit(static_cast<unsigned char>(sid[i])))throw std::runtime_error("会话标识异常");
+  }
+  auto nick=validText(s.at("nickname"),32);
+  auto expires=s.at("expires");
+  if(!expires.is_number_integer())throw std::runtime_error("会话有效期异常");
+  int64_t exp=expires.get<int64_t>();
+  auto current=in.at("now");
+  if(!current.is_number_integer()||exp<=current.get<int64_t>())throw std::runtime_error("会话已过期");
+  sessionId=sid;sessionNickname=nick;sessionExpires=exp;sessionPhase="active";
+  return {{"phase",sessionPhase},{"id",sessionId},{"nickname",sessionNickname},{"expires",sessionExpires},{"showGate",false},{"contentVisible",true}};
+ }
  if(op=="gate"){bool show=in.value("expired",false)&&!in.value("hasSession",false);return {{"show",show},{"contentVisible",!show}};}
  if(op=="reset"){auto r=validText(in.at("room"),80);if(!std::all_of(r.begin(),r.end(),[](unsigned char c){return std::isalnum(c)||c=='-';})||std::any_of(r.begin(),r.end(),[](unsigned char c){return c>127;}))throw std::runtime_error("房号格式不正确");room=r;messages.clear();deleted.clear();members=J::array();return {{"room",room}};}
  if(op=="session")return {{"nickname",validText(in.at("nickname"),32)}};

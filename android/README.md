@@ -1,11 +1,11 @@
-# 轻聊 Android 0.1.2
+# 轻聊 Android 0.1.3
 
 现有 Cloudflare 聊天室的独立原生 Android 客户端。基于仓库 main `ec77d86412ff10afdf6ebdd61eb716c2f1a5a7ca` 的实际 API 实现；未改网站、Worker、D1、R2、域名或线上配置。不是 WebView 包壳，不内嵌网页。
 
 ## 架构
 
 - 单 `MainActivity`，自定义 `ChatFragment` 管理前台生命周期；布局由 Java 动态组装，无 XML layout。`MessageBubbleView` 在 Canvas 绘制胶囊气泡，文字与辅助功能沿用原生 TextView。
-- C++17 `Engine` 负责协议 JSON、消息索引/去重/稳定排序、删除墓碑（拒绝旧历史复活）、在线成员、输入/上传限制、UTF-16 长度边界、退避重连策略。不是仅供演示的空 JNI。
+- C++17 `Engine` 负责协议 JSON、消息索引/去重/稳定排序、删除墓碑（拒绝旧历史复活）、在线成员、输入/上传限制、UTF-16 长度边界、退避重连策略，并校验服务端会话响应（UUID、昵称、有效期）及管理未知/需昵称/有效三态。会话态决定原生聊天内容与无障碍树是否开放。不是仅供演示的空 JNI。
 - JNI 仅传递不透明句柄和有上限的 JSON 字符串，显式严格转换 UTF-8/UTF-16，RAII 管理核心，Java/C++ 两侧串行化访问，异常转换为受控错误。没有裸指针暴露给 UI。
 - Java/OkHttp 负责 Android TLS、Cookie、WebSocket、异步 I/O、系统文件选择、Keystore、麦克风与媒体解码。没有为增加 C++ 比例而把 Android 权限/TLS 绕过到不安全的 native 网络层。
 - 前台心跳、断线退避、回前台补历史，房间代际检查阻止旧请求写进新房间。匿名 Cookie 以 Android Keystore AES-GCM 加密保存；关闭系统备份。消息/媒体仅位于进程内存与应用私有缓存，缓存文件不是端到端加密存储。

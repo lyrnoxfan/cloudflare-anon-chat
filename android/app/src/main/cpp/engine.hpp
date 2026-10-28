@@ -10,6 +10,10 @@ class Engine {
  std::set<std::string> deleted;
  J members=J::array();
  std::string room="lobby";
+ std::string sessionPhase="unknown";
+ std::string sessionId;
+ std::string sessionNickname;
+ int64_t sessionExpires=0;
  public:
  J command(const J& in);
  static size_t units(const std::string& s);

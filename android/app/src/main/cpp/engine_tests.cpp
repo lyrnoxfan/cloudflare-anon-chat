@@ -7,6 +7,15 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  auto gate=e.command({{"op","gate"},{"expired",true},{"hasSession",false}});check(gate["show"]==true&&gate["contentVisible"]==false);
  auto active=e.command({{"op","gate"},{"expired",false},{"hasSession",true}});check(active["show"]==false&&active["contentVisible"]==true);
  auto restored=e.command({{"op","gate"},{"expired",true},{"hasSession",true}});check(restored["show"]==false&&restored["contentVisible"]==true);
+ auto initialSession=e.command({{"op","session_state"}});check(initialSession["phase"]=="unknown"&&initialSession["showGate"]&&!initialSession["contentVisible"]);
+ e.command({{"op","session_required"}});check(e.command({{"op","session_state"}})["showGate"]==true);
+ J expiredSession={{"id","123e4567-e89b-12d3-a456-426614174000"},{"nickname","小青"},{"expires",99999}};
+ check(rejects({{"op","session_accept"},{"session",expiredSession},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="required");
+ J validSession={{"id","123e4567-e89b-12d3-a456-426614174000"},{"nickname"," 小青 "},{"expires",200000}};
+ auto accepted=e.command({{"op","session_accept"},{"session",validSession},{"now",100000}});check(accepted["phase"]=="active"&&accepted["nickname"]=="小青");
+ auto sessionGate=e.command({{"op","session_state"}});check(sessionGate["active"]&& !sessionGate["showGate"]&&sessionGate["contentVisible"]);
+ J malformedSession={{"id","not-a-uuid"},{"nickname","bad"},{"expires",200000}};check(rejects({{"op","session_accept"},{"session",malformedSession},{"now",100000}}));check(e.command({{"op","session_state"}})["phase"]=="active");
+ e.command({{"op","session_required"}});check(e.command({{"op","session_state"}})["phase"]=="required");
  check(e.command({{"op","reset"},{"room","lobby"}})["room"]=="lobby");
  check(rejects({{"op","reset"},{"room","../bad"}}));check(rejects({{"op","reset"},{"room","房间"}}));
  check(e.command({{"op","join"},{"password","a"}})["password"]=="a");check(rejects({{"op","join"},{"password"," "}}));

@@ -388,6 +388,7 @@ public final class ChatFragment extends Fragment {
           if (f) emojiPanel.setVisibility(View.GONE);
         });
     render(false);
+    updateSessionGate();
     return root;
   }
 
@@ -496,12 +497,12 @@ public final class ChatFragment extends Fragment {
     boolean show;
     boolean showContent;
     try {
-      JSONObject screen = core.run("gate", "expired", sessionExpired, "hasSession", session != null);
-      show = screen.getBoolean("show");
+      JSONObject screen = core.run("session_state");
+      show = screen.getBoolean("showGate");
       showContent = screen.getBoolean("contentVisible");
     } catch (Exception ignored) {
       show = sessionExpired && session == null;
-      showContent = !show;
+      showContent = session != null && !show;
     }
     if (content != null) {
       content.setVisibility(showContent ? View.VISIBLE : View.GONE);
@@ -514,6 +515,7 @@ public final class ChatFragment extends Fragment {
 
   private void showSessionGate() {
     sessionExpired = true;
+    try { core.run("session_required"); } catch (Exception ignored) {}
     setStatus("会话过期，请重新输入昵称");
     if (gateName != null && !gateName.hasFocus()) gateName.setText(nickname);
     if (gateError != null) gateError.setVisibility(View.GONE);
@@ -529,8 +531,7 @@ public final class ChatFragment extends Fragment {
         task(
             () -> net.api("/api/session", payload),
             value -> {
-              session = (JSONObject) value;
-              nickname = session.optString("nickname");
+              acceptSession((JSONObject) value);
               if (getActivity() != null)
                 getActivity().getPreferences(0).edit().putString("nickname", nickname).apply();
               sessionExpired = false;
@@ -565,6 +566,7 @@ public final class ChatFragment extends Fragment {
       int code = ((ChatNet.ApiError) e).status;
       if (code == 401) {
         session = null;
+        try { core.run("session_required"); } catch (Exception ignored) {}
         disconnect();
         showSessionGate();
         return;
@@ -577,21 +579,29 @@ public final class ChatFragment extends Fragment {
       }
     }
     setStatus(s == null ? "网络请求失败，请重试" : s);
-    if (sessionExpired && gateError != null) {
+    if (session == null && gateError != null) {
       gateError.setText(status);
       gateError.setVisibility(View.VISIBLE);
     } else toast(status);
   }
 
+  private void acceptSession(JSONObject response) throws Exception {
+    JSONObject accepted = core.run("session_accept", "session", response, "now", System.currentTimeMillis());
+    JSONObject normalized = new JSONObject(response.toString());
+    normalized.put("nickname", accepted.getString("nickname"));
+    session = normalized;
+    nickname = accepted.getString("nickname");
+    sessionExpired = false;
+    updateSessionGate();
+  }
+
   private void restoreSession() {
     setStatus("正在恢复会话…");
+    if (gateEnter != null) gateEnter.setEnabled(false);
     task(
         () -> net.api("/api/session", null),
         value -> {
-          session = (JSONObject) value;
-          nickname = session.optString("nickname");
-          sessionExpired = false;
-          updateSessionGate();
+          acceptSession((JSONObject) value);
           if (pendingLink != null) {
             String r = pendingLink;
             pendingLink = null;
@@ -640,8 +650,7 @@ public final class ChatFragment extends Fragment {
                               }
                             },
                             value -> {
-                              session = (JSONObject) value;
-                              nickname = session.optString("nickname");
+                              acceptSession((JSONObject) value);
                               if (getActivity() != null)
                                 getActivity()
                                     .getPreferences(0)
