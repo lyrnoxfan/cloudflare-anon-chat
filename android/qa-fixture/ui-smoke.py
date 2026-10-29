@@ -110,13 +110,27 @@ try:
     locate('2 人在线', contains=True)
     capture('02-chat-light')
     # Start at the tail as a chat should; scroll back to inspect the older grouped avatar.
+    # A node can be accessibility-visible while partly clipped by the sticky chat header.
+    # Bring the target into the message viewport before asserting its full 30dp size.
     scroll_locate('小简', 'content-desc', direction='down')
-    # A visible grouped-message avatar must keep its full 30dp height (CI density is 2).
-    avatars = [n for n in tree().iter('node') if n.get('content-desc') == '小简']
-    assert avatars, 'Peer avatar missing'
-    for n in avatars:
-        x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds')))
-        assert y2-y1 >= 58, f'Avatar clipped: {n.get("bounds")}'
+    avatars = []
+    fully_visible = []
+    for _ in range(3):
+        snapshot = tree()
+        avatars = [n for n in snapshot.iter('node') if n.get('content-desc') == '小简']
+        fully_visible = []
+        for n in avatars:
+            x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds', '')))
+            if y1 >= 204 and y2 <= 1216:
+                fully_visible.append((n, y2-y1))
+        if fully_visible:
+            break
+        # Finger-down scroll moves older content away from the header and into view.
+        adb('shell','input','swipe','360','320','360','650','350')
+    assert fully_visible, 'Peer avatar never fully entered the message viewport'
+    # A fully visible grouped-message avatar keeps its full 30dp height (CI density is 2).
+    for n, height in fully_visible:
+        assert height >= 58, f'Avatar clipped within message viewport: {n.get("bounds")}'
     passed('session opens real native chat and WebSocket presence; avatars are not clipped')
     scroll_locate('周末去书店，顺便喝杯咖啡 ☕', direction='up')
     tap('消息内容','content-desc')

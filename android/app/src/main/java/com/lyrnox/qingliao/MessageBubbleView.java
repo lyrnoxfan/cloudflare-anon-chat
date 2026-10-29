@@ -28,7 +28,7 @@ final class MessageBubbleView extends TextView {
         Math.round(11 * density),
         Math.round(15 * density),
         Math.round(11 * density));
-    setLineSpacing(3 * density, 1);
+    setLineSpacing(5 * density, 1);
     setFontFeatureSettings("kern");
     setBackgroundColor(Color.TRANSPARENT);
   }

@@ -288,10 +288,12 @@ public final class ChatFragment extends Fragment {
     root.addView(content, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout header = new LinearLayout(getActivity());
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setPadding(dp(9), dp(8), dp(9), dp(8));
+    header.setPadding(dp(10), dp(11), dp(10), dp(10));
+    // Match the current website mobile topbar minimum height and spacing.
+    header.setMinimumHeight(dp(77));
     Button drawerToggle = iconButton("‹", "打开房间导航", this::openRoomDrawer);
     drawerToggle.setTextSize(31);
-    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(36), dp(40)));
     TextView roomMark = text("▱", 17, green);
     roomMark.setGravity(Gravity.CENTER);
     roomMark.setBackground(shape(pale, 22));
@@ -331,11 +333,11 @@ public final class ChatFragment extends Fragment {
     heading.setOnClickListener(v -> shareRoom());
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
     Button audioAction = iconButton("☎", "发起语音通话", () -> startCallFromToolbar("audio"));
-    header.addView(audioAction, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    header.addView(audioAction, new LinearLayout.LayoutParams(dp(35), dp(40)));
     Button videoAction = iconButton("▣", "发起视频通话", () -> startCallFromToolbar("video"));
-    header.addView(videoAction, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    header.addView(videoAction, new LinearLayout.LayoutParams(dp(35), dp(40)));
     Button more = iconButton("···", "更多房间操作", this::roomMenu);
-    header.addView(more, new LinearLayout.LayoutParams(dp(34), dp(42)));
+    header.addView(more, new LinearLayout.LayoutParams(dp(35), dp(40)));
     content.addView(header);
     View headerLine = new View(getActivity());
     headerLine.setBackgroundColor(line);
@@ -389,7 +391,8 @@ public final class ChatFragment extends Fragment {
     list.setDivider(null);
     list.setDividerHeight(0);
     list.setCacheColorHint(bg);
-    list.setPadding(dp(10), dp(6), dp(10), dp(8));
+    // Match public/style.css mobile #messages insets.
+    list.setPadding(dp(13), dp(14), dp(13), dp(20));
     list.setClipToPadding(false);
     // Keep the tail anchored while the composer/IME changes the available height.
     // A one-shot setSelection can otherwise be overwritten by ListView's resize layout.
@@ -559,10 +562,11 @@ public final class ChatFragment extends Fragment {
     content.addView(replyDraft, replyParams);
     LinearLayout composer = new LinearLayout(getActivity());
     composer.setGravity(Gravity.CENTER_VERTICAL);
-    composer.setPadding(dp(10), dp(7), dp(10), dp(10));
+    // Match the website mobile composer-wrap inset and safe-area breathing room.
+    composer.setPadding(dp(10), dp(8), dp(10), dp(12));
     LinearLayout composerPill = new LinearLayout(getActivity());
     composerPill.setGravity(Gravity.CENTER_VERTICAL);
-    composerPill.setPadding(dp(7), dp(4), dp(6), dp(4));
+    composerPill.setPadding(dp(5), dp(3), dp(5), dp(3));
     composerPill.setBackground(shape(pale, 30));
     attach = iconButton("＋", "添加照片或文件", this::pickFile);
     input = field("说点什么…", false);
@@ -2043,7 +2047,8 @@ public final class ChatFragment extends Fragment {
       boolean groupEnd = following == null || !MessageGrouping.sameGroup(
           mine, nick, ts, following.optBoolean("mine"), following.optString("nickname", "匿名"),
           following.optLong("created"));
-      row.setPadding(0, dp(grouped ? 1 : 5), 0, dp(groupEnd ? 18 : 1));
+      // Mirror the web mobile message rhythm: 6px between rows, 21px after a group.
+      row.setPadding(0, dp(grouped ? 1 : 0), 0, dp(groupEnd ? 21 : 6));
       if (p == 0
           || !time(ts, "yyyy-MM-dd")
               .equals(time(getItem(p - 1).optLong("created"), "yyyy-MM-dd"))) {
@@ -2062,7 +2067,7 @@ public final class ChatFragment extends Fragment {
       // Baseline alignment overrides per-child bottom gravity and clips short avatar TextViews.
       messageRow.setBaselineAligned(false);
       messageRow.setGravity(Gravity.TOP);
-      messageRow.setPadding(dp(mine ? 42 : 4), 0, dp(4), 0);
+      messageRow.setPadding(dp(mine ? 37 : 0), 0, 0, 0);
       if (!mine) {
         TextView avatar = text(firstCodePoint(nick), 12, avatarInk);
         avatar.setGravity(Gravity.CENTER);
@@ -2083,9 +2088,9 @@ public final class ChatFragment extends Fragment {
         wrap.addView(name);
       }
       TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd, ChatFragment.this.mine, pale, ink, muted);
-      bubble.setLineSpacing(dp(3), 1);
+      bubble.setLineSpacing(dp(5), 1);
       bubble.setMaxWidth(Math.min(dp(580),
-          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 126))));
+          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 93))));
       bubble.setPadding(dp(15), dp(11), dp(15), dp(11));
       String kind = m.optString("kind");
       View bubbleView = bubble;
@@ -2102,7 +2107,7 @@ public final class ChatFragment extends Fragment {
         card.setContentDescription(nick + "：图片，轻触查看大图");
         FrameLayout imageFrame = new FrameLayout(getActivity());
         int previewWidth = Math.min(dp(280), Math.max(dp(190),
-            getResources().getDisplayMetrics().widthPixels - dp(mine ? 132 : 164)));
+            getResources().getDisplayMetrics().widthPixels - dp(110)));
         imageFrame.setLayoutParams(new LinearLayout.LayoutParams(previewWidth, dp(176)));
         imageFrame.setBackground(shape(pale, 16));
         imageFrame.setClipToOutline(true);
