@@ -13,6 +13,7 @@ function pathname(name) { return path.join(fixtureDir,name); }
 const port = 8000;
 const sessions = new Map();
 const clients = new Set();
+let activeCall = null;
 const now = Date.now();
 const messages = [
   {id:'qa-msg-001',created:now-86400000,nickname:'小简',mine:false,kind:'text',text:'今天路过一家很棒的书店。'},
@@ -20,7 +21,7 @@ const messages = [
   {id:'qa-msg-003',created:now-86200000,nickname:'阿禾',mine:true,kind:'text',text:'听起来不错！有什么有意思的发现吗？'},
   {id:'qa-msg-004',created:now-86000000,nickname:'小简',mine:false,kind:'text',text:'找到一本关于森林的画册 🌿'},
   {id:'qa-msg-005',created:now-85999900,nickname:'小简',mine:false,kind:'text',text:'下次可以一起去看看。'},
-  {id:'qa-msg-006',created:now-40000,nickname:'阿禾',mine:false,kind:'audio',filename:'语音消息.wav',mime:'audio/wav',size:44144,duration:1},
+  {id:'qa-msg-006',created:now-40000,nickname:'阿禾',mine:false,kind:'audio',filename:'语音消息.wav',mime:'audio/wav',size:529244,duration:12},
   {id:'qa-msg-007',created:now-30000,nickname:'阿禾',mine:false,kind:'image',filename:'书店.png',mime:'image/png',size:fs.statSync(pathname('bookshop.png')).size},
   {id:'qa-msg-008',created:now-20000,nickname:'阿禾',mine:false,kind:'video',filename:'森林散步.mp4',mime:'video/mp4',size:fs.statSync(pathname('forest.mp4')).size,duration:2},
   {id:'qa-msg-009',created:now-10000,nickname:'阿禾',mine:false,kind:'file',filename:'书店笔记.txt',mime:'text/plain',size:Buffer.byteLength('周末书店\n森林画册：一起去看看。\n咖啡：到店再选。\n')},
@@ -52,22 +53,35 @@ function broadcast(event) {
   for(const client of clients) if(!client.destroyed) client.write(frame);
 }
 function wav() {
-  const rate=22050, samples=rate, data=Buffer.alloc(samples*2);
+  const rate=22050, samples=rate*12, data=Buffer.alloc(samples*2);
   for(let i=0;i<samples;i++) data.writeInt16LE(Math.round(Math.sin(2*Math.PI*440*i/rate)*2500),i*2);
   const h=Buffer.alloc(44);h.write('RIFF',0);h.writeUInt32LE(36+data.length,4);h.write('WAVE',8);h.write('fmt ',12);h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(1,22);h.writeUInt32LE(rate,24);h.writeUInt32LE(rate*2,28);h.writeUInt16LE(2,32);h.writeUInt16LE(16,34);h.write('data',36);h.writeUInt32LE(data.length,40);return Buffer.concat([h,data]);
 }
 const server=http.createServer((req,res)=>{
   const url=new URL(req.url,`http://${host}:${port}`), path=url.pathname;
+  // Test controls exist only in this separate loopback fixture, never in the Worker.
+  if(path==='/qa/incoming' && req.method==='POST') {
+    const member=[...sessions.values()].at(-1);
+    if(!member)return json(res,409,{error:'No UI session'});
+    activeCall={id:'qa-incoming-call',kind:'audio',owner:'qa-peer',created:Date.now(),invited:true,joined:false,
+      target:member.id,members:[],participants:[],expires:Date.now()+60000};
+    broadcast({type:'call-changed'});return json(res,200,{ok:true});
+  }
+  if(path==='/qa/expire-call' && req.method==='POST') {activeCall=null;return json(res,200,{ok:true});}
+  if(path==='/api/r/lobby/call-decline' && req.method==='POST') {
+    if(!sessionFor(req))return json(res,401,{error:'会话已过期'});
+    activeCall=null;broadcast({type:'call-changed'});return json(res,200,{});
+  }
   if(path==='/health'){return json(res,200,{ok:true,mode:'isolated-qa-fixture'})}
   if(path==='/api/session'&&req.method==='GET'){
-    const s=sessionFor(req);return s?json(res,200,{...s,limits:{nickname:32,sessionMs:604800000},sfu:false}):json(res,401,{error:'请先输入昵称'});
+    const s=sessionFor(req);return s?json(res,200,{...s,limits:{nickname:32,sessionMs:604800000},sfu:true}):json(res,401,{error:'请先输入昵称'});
   }
   if(path==='/api/session'&&req.method==='POST'){
-    readBody(req).then(b=>{const nickname=String(b.nickname||'').trim();if(!nickname||nickname.length>32)return json(res,400,{error:'昵称格式不正确'});const token=crypto.randomUUID().replaceAll('-','');const s={id:crypto.randomUUID(),nickname,expires:Date.now()+604800000};sessions.set(token,s);json(res,200,{...s,limits:{nickname:32,sessionMs:604800000},sfu:false},{'Set-Cookie':`chat=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`})}).catch(()=>json(res,400,{error:'JSON 格式不正确'}));return;
+    readBody(req).then(b=>{const nickname=String(b.nickname||'').trim();if(!nickname||nickname.length>32)return json(res,400,{error:'昵称格式不正确'});const token=crypto.randomUUID().replaceAll('-','');const s={id:crypto.randomUUID(),nickname,expires:Date.now()+604800000};sessions.set(token,s);json(res,200,{...s,limits:{nickname:32,sessionMs:604800000},sfu:true},{'Set-Cookie':`chat=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`})}).catch(()=>json(res,400,{error:'JSON 格式不正确'}));return;
   }
-  if(path==='/api/r/lobby/state'&&req.method==='GET'){const s=sessionFor(req);return s?json(res,200,{room:{id:'lobby',name:'公共大厅',kind:'public'},call:null}):json(res,401,{error:'会话已过期'})}
+  if(path==='/api/r/lobby/state'&&req.method==='GET'){const s=sessionFor(req);return s?json(res,200,{room:{id:'lobby',name:'公共大厅',kind:'public'},call:activeCall}):json(res,401,{error:'会话已过期'})}
   if(path==='/api/r/lobby/history'&&req.method==='GET'){const s=sessionFor(req);return s?json(res,200,{messages:fixtureMessages(s),next:null}):json(res,401,{error:'会话已过期'})}
-  if(path==='/api/r/lobby/call-state'&&req.method==='GET') return sessionFor(req)?json(res,200,{call:null}):json(res,401,{error:'会话已过期'});
+  if(path==='/api/r/lobby/call-state'&&req.method==='GET') return sessionFor(req)?json(res,200,{call:activeCall}):json(res,401,{error:'会话已过期'});
   if(path==='/api/r/lobby/send'&&req.method==='POST'){
     let body='';req.on('data',c=>body+=c);req.on('end',()=>{try{const b=JSON.parse(body),s=sessionFor(req);if(!s)return json(res,401,{error:'会话已过期'});const text=String(b.text||'').trim(),clientId=String(b.clientId||'');if(!text||text.length>4000||!clientId||clientId.length>80)return json(res,400,{error:'消息内容或标识无效'});let m=messages.find(x=>x.mine&&x.client_id===clientId);if(!m){m={id:crypto.randomUUID(),created:Date.now(),nickname:s.nickname,mine:true,author:s.id,client_id:clientId,kind:'text',text};messages.push(m);broadcast({type:'message',message:m})}json(res,200,{message:m});}catch{return json(res,400,{error:'JSON 格式不正确'})}});return;
   }

@@ -58,6 +58,10 @@ node android/qa-fixture/mock-server.mjs > "$QA_EVIDENCE/fixture.log" 2>&1 &
 fixture_pid=$!
 for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
 python3 android/qa-fixture/ui-smoke.py | tee "$QA_EVIDENCE/ui.txt"
+adb shell am instrument -w -r com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.MediaLifecycleInstrumentation \
+  | tee "$QA_EVIDENCE/media-lifecycle.txt"
+grep -q '9 Android media/file/focus assertions passed' "$QA_EVIDENCE/media-lifecycle.txt"
+grep -q 'INSTRUMENTATION_CODE: -1' "$QA_EVIDENCE/media-lifecycle.txt"
 adb shell am force-stop com.lyrnox.qingliao.qa
 kill "$fixture_pid"; wait "$fixture_pid" || true; fixture_pid=''
 # Switch to the actual Worker source with local D1, R2 and Durable Objects.

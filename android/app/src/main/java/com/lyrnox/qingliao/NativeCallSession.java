@@ -49,6 +49,7 @@ final class NativeCallSession {
   private int subscriberRecoveries;
   private SurfaceTextureHelper textureHelper;
   private CameraVideoCapturer capturer;
+  private AudioFocusLease audioFocus;
   private AudioSource audioSource;
   private AudioTrack audioTrack;
   private VideoSource videoSource;
@@ -75,6 +76,12 @@ final class NativeCallSession {
       throw new IllegalArgumentException("通话类型无效");
     kind = requestedKind;
     try {
+      checkStopped();
+      audioFocus = new AudioFocusLease(context, true, () -> {
+        try { heartbeat.execute(() -> failCall("音频被其他应用中断，通话已结束")); }
+        catch (RejectedExecutionException ignored) {}
+      });
+      audioFocus.acquire();
       core.run("call_begin", "kind", kind);
       JSONObject current = net.callApi(room, "call-state", null, null).optJSONObject("call");
       JSONObject call;
@@ -457,6 +464,7 @@ final class NativeCallSession {
   }
 
   private void cleanupLocal() {
+    if (audioFocus != null) { audioFocus.release(); audioFocus = null; }
     closeSubscriber();
     if (peer != null) {
       try { peer.close(); } catch (Exception ignored) {}

@@ -94,7 +94,10 @@ public final class ChatFragment extends Fragment {
   private Runnable audioProgress;
   private int audioGeneration = 0;
   private File exportFile;
-  private String exportName;
+  private boolean exportPreparing;
+  private Dialog mediaDialog;
+  private AudioFocusLease mediaFocus;
+  private int pendingCallGeneration = -1;
   private NativeCallSession nativeCall;
   private SurfaceViewRenderer remoteRenderer;
   private VideoTrack remoteVideoTrack;
@@ -637,6 +640,8 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onStop() {
     started = false;
+    clearPendingCall();
+    main.removeCallbacks(callClock);
     main.removeCallbacks(callPoll);
     stopNativeCall();
     disconnect();
@@ -644,6 +649,7 @@ public final class ChatFragment extends Fragment {
     if (attachmentPrompt != null) attachmentPrompt.dismiss();
     stopPlayer();
     stopInlineVideo();
+    if (mediaDialog != null) mediaDialog.dismiss();
     super.onStop();
   }
 
@@ -708,6 +714,9 @@ public final class ChatFragment extends Fragment {
     stopNativeCall();
     disconnect();
     stopInlineVideo();
+    if (exportFile != null) { exportFile.delete(); exportFile = null; }
+    stopPlayer();
+    if (mediaDialog != null) mediaDialog.dismiss();
     net.close();
     io.shutdownNow();
     core.close();
@@ -723,7 +732,7 @@ public final class ChatFragment extends Fragment {
             Object value = job.run();
             main.post(
                 () -> {
-                  if (dead) return;
+                  if (dead) { discardResult(value); return; }
                   try {
                     result.done(value);
                   } catch (Exception e) {
@@ -745,7 +754,13 @@ public final class ChatFragment extends Fragment {
         job,
         v -> {
           if (g == generation) result.done(v);
+          else discardResult(v);
         });
+  }
+
+  private void discardResult(Object value) {
+    if (value instanceof File) ((File) value).delete();
+    else if (value instanceof Object[]) for (Object item : (Object[]) value) discardResult(item);
   }
 
   private String endpoint(String op) {
@@ -1074,7 +1089,7 @@ public final class ChatFragment extends Fragment {
                           "原生 Android 测试版\n"
                               + "单 Activity / 自定义 Fragment 与 View / C++ 协议及消息核心\n\n"
                               + "支持文字、参考表情、房号私聊、图片与文件、语音录制和媒体播放。\n\n"
-                              + "语音/视频通话仍属实验，尚未通过设备端或真实双端通话验收。退到后台会清理本机通话与实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
+                              + "语音/视频通话仍属实验，模拟媒体验收记录见随包报告；未完成实体设备验收。退到后台会清理本机通话与实时连接，返回后补取历史；没有后台推送。清除数据后匿名身份及消息删除权无法恢复。\n\n"
                               + "私密房间使用服务端口令授权，不是端到端加密。表情素材沿用网站，公开分发前需确认许可。")
                       .setPositiveButton("知道了", null)
                       .show();
@@ -1092,9 +1107,9 @@ public final class ChatFragment extends Fragment {
     }
     if (nativeCall != null) {
       new AlertDialog.Builder(getActivity())
-          .setTitle("原生媒体测试")
-          .setMessage("本机已接入媒体，正在尝试接收其他参会者。通话仍未经过设备端验收。")
-          .setPositiveButton("结束测试", (d, w) -> stopNativeCall())
+          .setTitle("当前通话")
+          .setMessage("正在连接房间内的音视频。退到后台或被其他音频中断时，本机会结束通话。")
+          .setPositiveButton("挂断", (d, w) -> stopNativeCall())
           .setNegativeButton("返回", null)
           .show();
       return;
@@ -1102,20 +1117,21 @@ public final class ChatFragment extends Fragment {
     new AlertDialog.Builder(getActivity())
         .setTitle("音视频通话")
         .setMessage("选择发起语音或视频通话；收到的房间邀请会显示在聊天顶部。")
-        .setItems(new String[] {"发布语音", "发布语音和视频"},
+        .setItems(new String[] {"语音通话", "视频通话"},
             (d, which) -> requestNativeCall(which == 0 ? "audio" : "video", null))
         .setNegativeButton("取消", null)
         .show();
   }
 
   private void requestNativeCall(String kind, String expectedCallId) {
-    if (getActivity() == null) return;
+    if (!started || getActivity() == null || session == null) return;
     ArrayList<String> missing = new ArrayList<>();
     if (getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
       missing.add(Manifest.permission.RECORD_AUDIO);
     if ("video".equals(kind) && getActivity().checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
       missing.add(Manifest.permission.CAMERA);
     if (!missing.isEmpty()) {
+      pendingCallGeneration = generation;
       pendingCallKind = kind;
       pendingCallId = expectedCallId == null ? "" : expectedCallId;
       pendingCallTargetId = expectedCallId == null ? selectedCallTargetId : "";
@@ -1126,7 +1142,10 @@ public final class ChatFragment extends Fragment {
   }
 
   private void startNativeCall(String kind, String expectedCallId, String targetId) {
-    if (getActivity() == null || session == null || nativeCall != null) return;
+    if (!started || getActivity() == null || session == null || nativeCall != null) return;
+    stopPlayer();
+    stopInlineVideo();
+    cancelRecording();
     final String selfId = session.optString("id", "");
     final NativeCallSession[] callRef = new NativeCallSession[1];
     final NativeCallSession call = new NativeCallSession(getActivity(), core, net, room, selfId,
@@ -1141,7 +1160,8 @@ public final class ChatFragment extends Fragment {
           }
           @Override public void onFailure(String message) {
             main.post(() -> {
-              if (nativeCall == callRef[0]) nativeCall = null;
+              if (nativeCall != callRef[0]) return;
+              nativeCall = null;
               clearRemoteRenderer();
               clearLocalRenderer();
               renderCallPanel();
@@ -1172,7 +1192,8 @@ public final class ChatFragment extends Fragment {
         } catch (Exception e) {
           call.stop();
           main.post(() -> {
-            if (nativeCall == callRef[0]) nativeCall = null;
+            if (nativeCall != callRef[0]) return;
+            nativeCall = null;
             clearRemoteRenderer();
             clearLocalRenderer();
             renderCallPanel();
@@ -1209,7 +1230,7 @@ public final class ChatFragment extends Fragment {
         main.post(() -> {
           if (g != generation) return;
           callStateBusy = false;
-          if (error == null) observeCall(call);
+          if (started && error == null) observeCall(call);
         });
       });
     } catch (RejectedExecutionException e) {
@@ -1631,6 +1652,7 @@ public final class ChatFragment extends Fragment {
       return;
     }
     try {
+      clearPendingCall();
       stopNativeCall();
       disconnect();
       cancelRecording();
@@ -2263,6 +2285,7 @@ public final class ChatFragment extends Fragment {
     ArrayList<String> actions = new ArrayList<>();
     if (copyable) actions.add("复制");
     actions.add("回复");
+    if (!copyable) actions.add("保存");
     if (mineMessage) actions.add("删除");
 
     LinearLayout menu = new LinearLayout(getActivity());
@@ -2306,6 +2329,8 @@ public final class ChatFragment extends Fragment {
               getActivity().getSystemService(Context.CLIPBOARD_SERVICE))
           .setPrimaryClip(ClipData.newPlainText("消息", value));
       toast("已复制");
+    } else if (action.equals("保存")) {
+      downloadForSave(m);
     } else if (action.equals("回复")) {
       if (input != null) {
         replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
@@ -2361,6 +2386,24 @@ public final class ChatFragment extends Fragment {
   @Override
   public void onActivityResult(int request, int result, Intent data) {
     super.onActivityResult(request, result, data);
+    if (request == 11) {
+      File snapshot = exportFile;
+      exportFile = null;
+      if (snapshot == null) return;
+      if (result != Activity.RESULT_OK || data == null || data.getData() == null) {
+        snapshot.delete();
+        return;
+      }
+      Uri uri = data.getData();
+      Context context = getActivity().getApplicationContext();
+      task(() -> {
+        try (InputStream in = new FileInputStream(snapshot);
+            OutputStream out = context.getContentResolver().openOutputStream(uri, "wt")) {
+          return MediaFiles.copy(in, out);
+        } finally { snapshot.delete(); }
+      }, value -> toast("文件已保存"));
+      return;
+    }
     if (result != Activity.RESULT_OK || data == null || data.getData() == null) return;
     if (request == 10) {
       Uri uri = data.getData();
@@ -2406,22 +2449,6 @@ public final class ChatFragment extends Fragment {
             }
             confirmAttachment((File) v[0], (String) v[1], (String) v[2], false, 0, rid, g);
           });
-    } else if (request == 11 && exportFile != null) {
-      File f = exportFile;
-      Uri uri = data.getData();
-      Context ctx = getActivity().getApplicationContext();
-      task(
-          () -> {
-            try (InputStream in = new FileInputStream(f);
-                OutputStream out = ctx.getContentResolver().openOutputStream(uri)) {
-              if (out == null) throw new IOException("无法保存文件");
-              byte[] b = new byte[32768];
-              int n;
-              while ((n = in.read(b)) != -1) out.write(b, 0, n);
-            }
-            return true;
-          },
-          v -> toast("文件已保存"));
     }
   }
 
@@ -2507,6 +2534,7 @@ public final class ChatFragment extends Fragment {
         return;
       }
       try {
+        acquireMediaFocus();
         player = new MediaPlayer();
         player.setAudioAttributes(new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -2532,12 +2560,14 @@ public final class ChatFragment extends Fragment {
   }
 
   private void startRecording() {
-    if (busy || session == null) return;
+    if (!started || busy || session == null || nativeCall != null) return;
     if (getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO)
         != PackageManager.PERMISSION_GRANTED) {
       requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, 20);
       return;
     }
+    stopPlayer();
+    stopInlineVideo();
     try {
       recording = File.createTempFile("voice-", ".m4a", getActivity().getCacheDir());
       recorder = new MediaRecorder();
@@ -2647,14 +2677,25 @@ public final class ChatFragment extends Fragment {
       String kind = pendingCallKind;
       String callId = pendingCallId;
       String targetId = pendingCallTargetId;
-      pendingCallKind = "";
-      pendingCallId = "";
-      pendingCallTargetId = "";
+      boolean current = pendingCallGeneration == generation && started;
+      clearPendingCall();
       boolean granted = result.length > 0;
       for (int value : result) if (value != PackageManager.PERMISSION_GRANTED) granted = false;
-      if (granted && !kind.isEmpty()) startNativeCall(kind, callId.isEmpty() ? null : callId, targetId);
-      else toast("未获得媒体权限，未启动通话测试");
+      if (granted && current && !kind.isEmpty()) startNativeCall(kind, callId.isEmpty() ? null : callId, targetId);
+      else toast(granted ? "状态已变化，未启动通话" : "未获得媒体权限，未启动通话");
     }
+  }
+
+  private void clearPendingCall() {
+    pendingCallGeneration = -1;
+    pendingCallKind = "";
+    pendingCallId = "";
+    pendingCallTargetId = "";
+  }
+
+  private void acquireMediaFocus() throws IOException {
+    if (mediaFocus == null) mediaFocus = new AudioFocusLease(getActivity(), false, this::stopPlayer);
+    mediaFocus.acquire();
   }
 
   private static final class AudioPlayback {
@@ -2673,6 +2714,7 @@ public final class ChatFragment extends Fragment {
   }
 
   private void stopPlayer() {
+    if (mediaFocus != null) { mediaFocus.release(); mediaFocus = null; }
     audioGeneration++;
     if (audioProgress != null) main.removeCallbacks(audioProgress);
     audioProgress = null;
@@ -2684,6 +2726,8 @@ public final class ChatFragment extends Fragment {
     if (activeAudio != null) {
       activeAudio.ready = false;
       activeAudio.toggle.setText("▶");
+      activeAudio.toggle.setContentDescription("播放语音");
+      if (activeAudio.file != null) { activeAudio.file.delete(); activeAudio.file = null; }
       activeAudio.seek.setProgress(0);
       activeAudio.clock.setText(durationLabel(0) + " / " + durationLabel(activeAudio.seek.getMax()));
     }
@@ -2699,13 +2743,17 @@ public final class ChatFragment extends Fragment {
     Object tag = card.getTag();
     if (!(tag instanceof AudioPlayback)) return;
     AudioPlayback playback = (AudioPlayback) tag;
-    if (playback.loading) return;
+    if (!started || nativeCall != null || playback.loading) return;
     if (playback.file != null) {
       if (activeAudio == playback && player != null) {
-        if (player.isPlaying()) { player.pause(); playback.toggle.setText("▶"); }
+        if (player.isPlaying()) {
+          player.pause(); playback.toggle.setText("▶"); playback.toggle.setContentDescription("继续播放语音");
+          if (mediaFocus != null) mediaFocus.release();
+        }
         else {
           if (player.getCurrentPosition() >= playback.seek.getMax()) player.seekTo(0);
-          player.start(); playback.toggle.setText("Ⅱ"); scheduleAudioProgress(playback);
+          try { acquireMediaFocus(); } catch (IOException e) { toast(e.getMessage()); return; }
+          player.start(); playback.toggle.setText("Ⅱ"); playback.toggle.setContentDescription("暂停语音"); scheduleAudioProgress(playback);
         }
       } else startInlineAudio(playback);
       return;
@@ -2742,9 +2790,11 @@ public final class ChatFragment extends Fragment {
   }
 
   private void startInlineAudio(AudioPlayback playback) {
+    stopInlineVideo();
     stopPlayer();
     activeAudio = playback;
     try {
+      acquireMediaFocus();
       player = new MediaPlayer();
       MediaPlayer prepared = player;
       if (playback.file == null) throw new IOException("语音文件尚未读取");
@@ -2758,6 +2808,7 @@ public final class ChatFragment extends Fragment {
         playback.seek.setMax(mp.getDuration());
         playback.clock.setText(durationLabel(0));
         playback.toggle.setText("Ⅱ");
+        playback.toggle.setContentDescription("暂停语音");
         mp.start();
         scheduleAudioProgress(playback);
       });
@@ -2768,6 +2819,8 @@ public final class ChatFragment extends Fragment {
         playback.seek.setProgress(playback.seek.getMax());
         playback.clock.setText(durationLabel(playback.seek.getMax()));
         playback.toggle.setText("▶");
+        playback.toggle.setContentDescription("重播语音");
+        if (mediaFocus != null) mediaFocus.release();
       });
       prepared.setOnErrorListener((mp, what, extra) -> {
         if (activeAudio == playback) {
@@ -2857,7 +2910,8 @@ public final class ChatFragment extends Fragment {
   }
 
   private void playInlineVideo(JSONObject message, FrameLayout preview, TextView placeholder) {
-    if (!isAdded() || !started) return;
+    if (!isAdded() || !started || nativeCall != null) return;
+    stopPlayer();
     String messageId = message.optString("id");
     if (!inlineVideoLoadingId.isEmpty()) return;
     if (activeInlineVideo != null && activeInlineVideo.getParent() == preview) {
@@ -2960,6 +3014,14 @@ public final class ChatFragment extends Fragment {
     if (file != null && file.exists()) file.delete();
   }
 
+  private void downloadForSave(JSONObject message) {
+    final String path = endpoint("download/") + message.optString("id");
+    scoped(() -> net.download(path, Math.min(MediaFiles.MAX_BYTES, Math.max(1, message.optLong("size"))) + 1024), value -> {
+      File file = (File) value;
+      saveFile(file, message.optString("filename", "文件"), message.optString("mime"), true);
+    });
+  }
+
   private void openMedia(JSONObject m) {
     if (m.optString("kind").equals("video")) stopInlineVideo();
     String path = endpoint("download/") + m.optString("id");
@@ -2990,6 +3052,7 @@ public final class ChatFragment extends Fragment {
             showImageLightbox(image, name, f, m.optString("mime"));
           } else if (kind.equals("audio")) {
             stopPlayer();
+            acquireMediaFocus();
             player = new MediaPlayer();
             player.setDataSource(f.getAbsolutePath());
             player.setAudioAttributes(
@@ -3004,16 +3067,18 @@ public final class ChatFragment extends Fragment {
                   return true;
                 });
             player.prepareAsync();
-            new AlertDialog.Builder(getActivity())
+            AlertDialog audioDialog = new AlertDialog.Builder(getActivity())
                 .setTitle("语音播放")
                 .setMessage(name)
                 .setPositiveButton("停止", (d, w) -> stopPlayer())
-                .setNeutralButton("保存", (d, w) -> saveFile(f, name, m.optString("mime")))
-                .setOnDismissListener(d -> stopPlayer())
+                .setNeutralButton("保存", null)
+                .setOnDismissListener(d -> { stopPlayer(); f.delete(); mediaDialog = null; })
                 .show();
+            mediaDialog = audioDialog;
+            audioDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> saveFile(f, name, m.optString("mime")));
           } else if (kind.equals("video")) {
             showVideoViewer(f, name, m.optString("mime"));
-          } else saveFile(f, name, m.optString("mime"));
+          } else saveFile(f, name, m.optString("mime"), true);
         });
   }
 
@@ -3048,7 +3113,8 @@ public final class ChatFragment extends Fragment {
       window.setBackgroundDrawableResource(android.R.color.black);
       window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
-    dialog.setOnDismissListener(d -> image.recycle());
+    mediaDialog = dialog;
+    dialog.setOnDismissListener(d -> { image.recycle(); file.delete(); if (mediaDialog == dialog) mediaDialog = null; });
     dialog.show();
     if (window != null) window.setLayout(-1, -1);
   }
@@ -3160,19 +3226,43 @@ public final class ChatFragment extends Fragment {
           toast("此视频编码暂不支持，可保存后播放");
           return true;
         });
-    dialog.setOnDismissListener(d -> video.stopPlayback());
+    mediaDialog = dialog;
+    dialog.setOnDismissListener(d -> { video.stopPlayback(); file.delete(); if (mediaDialog == dialog) mediaDialog = null; });
     dialog.show();
     if (window != null) window.setLayout(-1, -1);
   }
 
   private void saveFile(File f, String name, String mime) {
-    exportFile = f;
-    exportName = name;
-    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-    i.addCategory(Intent.CATEGORY_OPENABLE);
-    i.setType(mime.isEmpty() ? "application/octet-stream" : mime);
-    i.putExtra(Intent.EXTRA_TITLE, name);
-    startActivityForResult(i, 11);
+    saveFile(f, name, mime, false);
+  }
+
+  private void saveFile(File f, String name, String mime, boolean deleteSource) {
+    if (!started || exportFile != null || exportPreparing || getActivity() == null) {
+      if (deleteSource) f.delete();
+      toast("请先完成或取消当前保存");
+      return;
+    }
+    exportPreparing = true;
+    Context context = getActivity().getApplicationContext();
+    // Snapshot before opening DocumentsUI: onStop may release the source player/file.
+    task(() -> {
+      try { return MediaFiles.snapshot(f, context.getCacheDir()); }
+      catch (Exception error) { main.post(() -> exportPreparing = false); throw error; }
+      finally { if (deleteSource) f.delete(); }
+    }, value -> {
+      exportPreparing = false;
+      File snapshot = (File) value;
+      if (!started || getActivity() == null) { snapshot.delete(); return; }
+      exportFile = snapshot;
+      Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+      intent.addCategory(Intent.CATEGORY_OPENABLE);
+      intent.setType(mime == null || mime.isEmpty() ? "application/octet-stream" : mime);
+      intent.putExtra(Intent.EXTRA_TITLE, MediaFiles.displayName(name));
+      try { startActivityForResult(intent, 11); }
+      catch (ActivityNotFoundException error) {
+        snapshot.delete(); exportFile = null; toast("设备未提供文件保存器");
+      }
+    });
   }
 
   boolean back() {

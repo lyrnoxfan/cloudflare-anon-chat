@@ -31,13 +31,20 @@ try:
         if len(ready)==2: break
         if any(p.poll() is not None for p,f in processes): break
         time.sleep(1)
-    for serial in ('emulator-5554','emulator-5556'):
-        subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
+    if len(ready) == 2:
+        screenshot=subprocess.check_output(['adb','-s','emulator-5556','exec-out','screencap','-p'],timeout=10)
+        (out/'peer-activity-connected.png').write_bytes(screenshot)
+    # Peer exercises Home/cleanup before owner hangs up; otherwise owner termination
+    # could hide a broken peer lifecycle. Release is test-local, never a cloud control.
+    subprocess.run(['adb','-s','emulator-5556','shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
+    peer.wait(timeout=45)
+    subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
     for p,f in processes:
         p.wait(timeout=30); f.flush()
     for role in ('owner','peer'):
         text=(out/f'{role}.txt').read_text()
         print(text)
+        if role == 'peer' and 'PASS actual Activity invitation/join' not in text: raise AssertionError('Activity acceptance missing')
         if 'PASS native SFU '+role not in text or 'PASS native hangup' not in text or 'INSTRUMENTATION_CODE: -1' not in text:
             raise AssertionError(role+' native SFU acceptance failed')
     (out/'result.json').write_text(json.dumps({'passed':True,'target':'blue-room-test / chat.lyrnox.com','devices':'two isolated Android 10 emulators','media':'emulated Camera2 and microphone; RTP and decoded video verified, not physical-device or subjective audio quality'},indent=2))

@@ -2,6 +2,8 @@
 """Exercise the actual QA Activity through ADB/UIAutomator, not JNI-only view substitutes.
 Only an ephemeral CI emulator and the loopback fixture are used. Never clears installed data.
 """
+import urllib.request
+import hashlib
 import json
 import os
 import re
@@ -205,6 +207,49 @@ try:
     wait_palette(False)
     capture('07-chat-restored')
     passed('light mode restores after configuration change')
+    # Audio uses a 12-second generated PCM fixture, not a real microphone recording.
+    tap_node(scroll_locate('播放语音', 'content-desc', direction='down'))
+    locate('暂停语音', 'content-desc')
+    tap('暂停语音', 'content-desc')
+    locate('继续播放语音', 'content-desc')
+    capture('08-audio-paused')
+    passed('actual Android audio player starts and pauses')
+    tap('继续播放语音', 'content-desc')
+    locate('暂停语音', 'content-desc')
+    seek = locate('语音播放进度', 'content-desc')
+    tap_node(seek)
+    capture('09-audio-progress')
+    passed('audio resumes and accepts seek control input')
+    # Real Activity stop: no automatic microphone/playback resume on returning.
+    adb('shell','input','keyevent','3')
+    time.sleep(1)
+    adb('shell','am','start','-W','-n',PKG+'/com.lyrnox.qingliao.MainActivity')
+    scroll_locate('播放语音', 'content-desc', direction='down')
+    assert not any(n.get('content-desc') == '暂停语音' for n in tree().iter('node'))
+    passed('Home stops audio and foreground return does not silently resume it')
+    # Save through the real system document picker; compare output bytes independently.
+    tap_node(scroll_locate('书店笔记.txt', direction='up'))
+    locate('SAVE', timeout=25)
+    assert any(n.get('package') == 'com.android.documentsui' for n in tree().iter('node'))
+    capture('10-document-picker')
+    tap('SAVE')
+    locate('消息内容', 'content-desc')
+    expected = '周末书店\n森林画册：一起去看看。\n咖啡：到店再选。\n'.encode('utf-8')
+    saved = adb('exec-out','cat','/sdcard/Download/书店笔记.txt')
+    assert saved == expected, 'Saved document differs from the authorized downloaded bytes'
+    (OUT/'document-save.json').write_text(json.dumps({'path':'Download/书店笔记.txt','bytes':len(saved),
+        'sha256':hashlib.sha256(saved).hexdigest(),'matches_fixture':True},ensure_ascii=False,indent=2))
+    passed('authorized file downloads through DocumentsUI and saves byte-identical data')
+    # Incoming control exists ONLY in the separate loopback fixture. This checks UI/signalling,
+    # not a real SFU/media call. Existing cc2810b SFU evidence is not counted for this source.
+    request=urllib.request.Request('http://127.0.0.1:8000/qa/incoming',data=b'{}',method='POST')
+    with urllib.request.urlopen(request) as response: assert response.status == 200
+    locate('接听'); locate('拒绝')
+    capture('11-incoming-invitation')
+    tap('拒绝')
+    time.sleep(2)
+    assert not any(n.get('text') == '接听' for n in tree().iter('node'))
+    passed('foreground incoming invitation and decline operate through actual Activity and fixture API')
     (OUT / 'ui-result.json').write_text(json.dumps({'passed':True,'checks':checks},ensure_ascii=False,indent=2))
 except Exception as e:
     try: capture('failure')
