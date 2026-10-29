@@ -59,6 +59,14 @@ public final class NativeInstrumentation extends Instrumentation {
       check(!MessageGrouping.sameGroup(false, "小青", now, true, "小青", now + 1), "mine status ends group");
       check("今天".equals(MessageGrouping.dayLabel(now, now)), "message date divider labels today");
       check("昨天".equals(MessageGrouping.dayLabel(now - 24L * 60 * 60 * 1000, now)), "message date divider labels yesterday");
+      check("听筒".equals(CallAudioRouter.labelForType(android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)),
+          "call audio route names the receiver");
+      check("扬声器".equals(CallAudioRouter.labelForType(android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)),
+          "call audio route names the speaker");
+      check("其他音频设备".equals(CallAudioRouter.displayLabelForType(Integer.MAX_VALUE)),
+          "unknown call audio routes remain understandable to accessibility users");
+      check(CallAudioRouter.isBluetoothType(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO),
+          "legacy Bluetooth headset is identified for permission gating");
       JSONObject targetedCall = NativeCallSession.startPayload("video", "guest-2");
       check("video".equals(targetedCall.getString("kind")) && "guest-2".equals(targetedCall.getString("target")), "direct call uses selected member id");
       JSONObject groupCallPayload = NativeCallSession.startPayload("audio", "");

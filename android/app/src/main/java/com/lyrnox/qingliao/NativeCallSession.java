@@ -56,6 +56,7 @@ final class NativeCallSession {
   private SurfaceTextureHelper textureHelper;
   private CameraVideoCapturer capturer;
   private AudioFocusLease audioFocus;
+  private CallAudioRouter audioRouter;
   private AudioSource audioSource;
   private AudioTrack audioTrack;
   private VideoSource videoSource;
@@ -83,6 +84,9 @@ final class NativeCallSession {
     kind = requestedKind;
     try {
       checkStopped();
+      // Snapshot routing before requesting communication mode; mode changes may alter the default output.
+      audioRouter = new CallAudioRouter(context);
+      audioRouter.begin();
       audioFocus = new AudioFocusLease(context, true, () -> {
         try { heartbeat.execute(() -> failCall("音频被其他应用中断，通话已结束")); }
         catch (RejectedExecutionException ignored) {}
@@ -546,6 +550,7 @@ final class NativeCallSession {
   }
 
   private void cleanupLocal() {
+    if (audioRouter != null) { audioRouter.release(); audioRouter = null; }
     if (audioFocus != null) { audioFocus.release(); audioFocus = null; }
     closeSubscriber();
     if (peer != null) {
@@ -565,6 +570,19 @@ final class NativeCallSession {
     if (audioSource != null) { audioSource.dispose(); audioSource = null; }
     if (factory != null) { factory.dispose(); factory = null; }
     if (egl != null) { egl.release(); egl = null; }
+  }
+
+  synchronized List<CallAudioRouter.Route> availableAudioRoutes() {
+    return audioRouter == null ? Collections.emptyList() : audioRouter.availableRoutes();
+  }
+  synchronized int selectedAudioRouteId() {
+    return audioRouter == null ? CallAudioRouter.ROUTE_EARPIECE : audioRouter.selectedRouteId();
+  }
+  synchronized String selectedAudioRouteLabel() {
+    return audioRouter == null ? "系统默认" : audioRouter.selectedRouteLabel();
+  }
+  synchronized boolean selectAudioRoute(CallAudioRouter.Route route) {
+    return audioRouter != null && audioRouter.select(route);
   }
 
   synchronized boolean isMicrophoneReady() { return audioTrack != null; }

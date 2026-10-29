@@ -116,7 +116,7 @@ public final class ChatFragment extends Fragment {
     }
   }
   private final Map<String, RemoteRendererBinding> remoteRenderers = new LinkedHashMap<>();
-  private Button callJoin, callDecline, callMute, callCamera, callFlip, callEnd;
+  private Button callJoin, callDecline, callMute, callCamera, callFlip, callAudio, callEnd;
   private HorizontalScrollView callButtonScroll;
   private long observedCallStartedAt;
   private JSONObject observedCall;
@@ -147,6 +147,7 @@ public final class ChatFragment extends Fragment {
   private Dialog mediaDialog;
   private AudioFocusLease mediaFocus;
   private int pendingCallGeneration = -1;
+  private static final int AUDIO_ROUTE_PERMISSION_REQUEST = 42;
   private NativeCallSession nativeCall;
   private int nativeCallRecoveryAttempts;
   private boolean callRecoveryPending;
@@ -470,9 +471,10 @@ public final class ChatFragment extends Fragment {
     callMute = callButton("麦克风开", "静音", this::toggleCallMicrophone, pale);
     callCamera = callButton("摄像头开", "关摄像头", this::toggleCallCamera, pale);
     callFlip = callButton("切换镜头", "切后摄", this::flipCallCamera, pale);
+    callAudio = callButton("音频输出", "选择音频输出", this::showCallAudioRoutes, pale);
     callEnd = callButton("挂断通话", "挂断", this::stopNativeCall, callDangerBackground());
     callButtons.setGravity(Gravity.CENTER);
-    for (Button control : new Button[] {callJoin, callDecline, callMute, callCamera, callFlip, callEnd}) {
+    for (Button control : new Button[] {callJoin, callDecline, callMute, callCamera, callFlip, callAudio, callEnd}) {
       LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(dp(48), dp(48));
       controlParams.leftMargin = dp(2);
       controlParams.rightMargin = dp(2);
@@ -890,6 +892,7 @@ public final class ChatFragment extends Fragment {
     callMute = null;
     callCamera = null;
     callFlip = null;
+    callAudio = null;
     callButtonScroll = null;
     callEnd = null;
     emojiPanel = null;
@@ -1541,6 +1544,8 @@ public final class ChatFragment extends Fragment {
       callFlip.setVisibility("video".equals(kind) && nativeCall.isCameraReady() ? View.VISIBLE : View.GONE);
       updateCallButton(callFlip, "切换镜头",
           nativeCall.isFrontFacing() ? "切后摄" : "切前摄", pale);
+      callAudio.setVisibility(View.VISIBLE);
+      updateCallButton(callAudio, "音频输出", "音频输出：" + nativeCall.selectedAudioRouteLabel(), pale);
       callEnd.setVisibility(View.VISIBLE);
       callPanel.setVisibility(View.VISIBLE);
       return;
@@ -1565,11 +1570,49 @@ public final class ChatFragment extends Fragment {
       callMute.setVisibility(View.GONE);
       callCamera.setVisibility(View.GONE);
       callFlip.setVisibility(View.GONE);
+      callAudio.setVisibility(View.GONE);
       callEnd.setVisibility(View.GONE);
       callPanel.setVisibility(View.VISIBLE);
     } catch (Exception e) {
       callPanel.setVisibility(View.GONE);
     }
+  }
+
+  private void showCallAudioRoutes() {
+    if (nativeCall == null || getActivity() == null) return;
+    List<CallAudioRouter.Route> routes = nativeCall.availableAudioRoutes();
+    if (routes.isEmpty()) {
+      toast("没有可切换的音频设备；耳机仍由 Android 自动接管");
+      return;
+    }
+    String[] labels = new String[routes.size()];
+    int selected = -1;
+    int selectedId = nativeCall.selectedAudioRouteId();
+    String selectedLabel = nativeCall.selectedAudioRouteLabel();
+    for (int i = 0; i < routes.size(); i++) {
+      CallAudioRouter.Route route = routes.get(i);
+      boolean isSelected = route.id == selectedId || route.label.equals(selectedLabel);
+      labels[i] = route.label + (isSelected ? " · 当前" : "");
+      if (isSelected) selected = i;
+    }
+    new AlertDialog.Builder(getActivity())
+        .setTitle("音频输出")
+        .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+          CallAudioRouter.Route route = routes.get(which);
+          if (route.bluetooth && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+              && getActivity() != null
+              && getActivity().checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                  != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {Manifest.permission.BLUETOOTH_CONNECT}, AUDIO_ROUTE_PERMISSION_REQUEST);
+          } else if (nativeCall == null || !nativeCall.selectAudioRoute(route)) {
+            toast("该音频设备已不可用，请重新选择");
+          } else {
+            renderCallPanel();
+          }
+          dialog.dismiss();
+        })
+        .setNegativeButton("取消", null)
+        .show();
   }
 
   private void acceptObservedCall() {
@@ -3211,6 +3254,11 @@ public final class ChatFragment extends Fragment {
     if (request == 20) {
       if (result.length > 0 && result[0] == PackageManager.PERMISSION_GRANTED) startRecording();
       else toast("未获麦克风权限，仍可发送文字和文件");
+    }
+    if (request == AUDIO_ROUTE_PERMISSION_REQUEST) {
+      if (result.length > 0 && result[0] == PackageManager.PERMISSION_GRANTED && nativeCall != null && started)
+        showCallAudioRoutes();
+      else toast("未获蓝牙设备权限，仍可使用其他音频输出");
     }
     if (request == 41) {
       String kind = pendingCallKind;

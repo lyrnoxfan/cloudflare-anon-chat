@@ -31,7 +31,7 @@ final class ChatIconDrawable extends Drawable {
         || name.equals("接听通话") || name.equals("拒绝通话")
         || name.equals("麦克风开") || name.equals("麦克风静音")
         || name.equals("摄像头开") || name.equals("摄像头关")
-        || name.equals("切换镜头") || name.equals("挂断通话");
+        || name.equals("切换镜头") || name.equals("挂断通话") || name.equals("音频输出");
   }
 
   private void lines(Canvas canvas, float... points) {
@@ -107,6 +107,11 @@ final class ChatIconDrawable extends Drawable {
       case "切换镜头":
         lines(canvas, 4, 8, 7, 5, 17, 5, 20, 8); lines(canvas, 20, 8, 17, 8);
         lines(canvas, 20, 16, 17, 19, 7, 19, 4, 16); lines(canvas, 4, 16, 7, 16); break;
+      case "音频输出":
+        canvas.drawRoundRect(3, 8, 7, 16, 1.5f, 1.5f, paint);
+        lines(canvas, 7, 9, 13, 5, 13, 19, 7, 15);
+        Path wave = new Path(); wave.moveTo(16, 8); wave.cubicTo(19, 10, 19, 14, 16, 16);
+        canvas.drawPath(wave, paint); break;
       case "挂断通话":
         Path endPhone = new Path(); endPhone.moveTo(4, 14);
         endPhone.cubicTo(7, 18, 17, 18, 20, 14); endPhone.lineTo(16, 11);

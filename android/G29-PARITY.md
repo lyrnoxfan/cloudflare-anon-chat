@@ -97,7 +97,7 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 | 表情：`#emojiToggle/#emojiPicker` | 内置表情网格与 `emojiScroll`；按可用高度限高、网格滚动 | 本地 Activity 检查边界和滚动；小屏键盘同时弹起、厂商输入法遮挡未验 |
 | 录音：`#record/#recorder/#stopRecord/#sendRecord/#cancelRecord/#recordPreview`，网页最长 2 小时、音频 10 MiB 上限 | `MediaRecorder` 原生录音、预听/取消/发送；此次将先前更严的 2 分钟/9 MiB 上限改为与网页一致的 2 小时/10 MiB | 新增 Android 检查只核对配置常量，不启动实体麦克风；编码器截止边界、实际录音时间/大小和真机权限仍待设备测试 |
 | 图片/视频 lightbox：`#lightbox/#fullImage/#fullVideo/#closeLightbox` | `showImageLightbox`、`showVideoViewer`、内联播放/停止/重试 | 媒体 API/文件流程有隔离测试；设备 codec、旋转、播放焦点与网页内联播放器仍需真机覆盖 |
-| 通话面板：`#callPanel/#acceptCall/#declineCall/#mute/#camera/#flip/#hangup/#videos` | `renderCallPanel`、`requestNativeCall`、`NativeCallSession`、参与者视频网格 | 三方模拟器结果仅能证明对应提交/运行；不证明物理摄像头、麦克风、听筒、扬声器或蓝牙路由 |
+| 通话面板：`#callPanel/#acceptCall/#declineCall/#mute/#camera/#flip/#hangup/#videos` | `renderCallPanel`、`requestNativeCall`、`NativeCallSession`、参与者视频网格；本次新增通话中音频输出选择（听筒/扬声器/有线、USB、蓝牙，依设备支持） | 三方模拟器结果仅能证明对应提交/运行；不证明物理摄像头、麦克风、听筒、扬声器或蓝牙路由 |
 | 在线/生命周期：WebSocket `open/message/close`、`online`、`pagehide`、呼叫状态轮询与恢复 | `connect/lost/reconnect`、网络状态门控、Fragment 生命周期与媒体清理 | 网络恢复门控状态机可被自动测试；真实断网/切 Wi-Fi/蜂窝、厂商后台冻结及恢复时间还未端到端验收 |
 
 实现性差异已修复：网页录音允许最多两小时且服务端音频大小上限为 10 MiB；Android 之前仅允许两分钟且 9 MiB。现在使用 `MediaFiles.MAX_VOICE_DURATION_MS` 与 `MAX_VOICE_BYTES` 并新增两项 Android instrumentation 配置断言。该常量检查不是麦克风实测，修改后仍必须在最终固定 SHA 的唯一整体验收中确认构建与 Android 检查。
@@ -110,3 +110,10 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 - The Activity fixture for an incoming call was still searching for visible text `接听` / `拒绝`, while the shipped native call controls are intentionally icon-only and expose the accessible names `接听来电` / `拒绝`. The latest Activity run therefore stopped at the fixture locator before exercising the invitation actions; this was a stale test selector, not evidence that the incoming-call UI was absent.
 - Updated `android/qa-fixture/ui-smoke.py` to locate and tap the stable content descriptions, then assert the call invitation disappears after decline. This fixes only the test harness; it does not change call behavior. The corrected selector and the full frozen-SHA acceptance still require one CI run.
 - Android emulator/Activity checks can verify the UI/signalling fixture only. There is still no isolated SFU target or real handset in this environment, so genuine two-way SFU media, device microphone/camera/audio routing, production web end-to-end and actual network-loss recovery remain unverified.
+
+
+## 当前补齐 — 原生通话音频输出路由（2026-10-30）
+
+- Android 通话面板增加独立的 48dp「音频输出」图标控件；可在通话中按系统实际可用设备选择听筒、扬声器、有线/USB/蓝牙耳机或音箱。Android 12+ 通过通信设备 API 读取/切换端点；旧版本至少提供听筒/扬声器选择，耳机继续由系统自动管理。未知设备使用可理解的兜底名称。
+- Android 12+ 的蓝牙连接权限仅在用户主动选择蓝牙设备时请求；拒绝权限不会阻断其他输出方式。通话结束时恢复先前仍可用的系统通信端点，否则清除强制路由回到系统默认；旧版本恢复此前扬声器状态。
+- 新增一条 JNI/Activity 仪器断言覆盖未知设备名称；本次定向 Javac 构建已通过。此实现填补了可在源码层解决的“通话音频输出不可选择”差异，但不代表设备上蓝牙切换、耳机插拔、系统来电抢占等行为已经验证；仍须等冻结提交的集中接受测试，并需要真实硬件才能验收实际音频路径。
