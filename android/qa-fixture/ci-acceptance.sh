@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Run from repo root on an ephemeral Linux CI runner. No cloud credentials, no remote writes.
 set -euo pipefail
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+command -v adb
+adb start-server
 export QA_EVIDENCE="$PWD/android/evidence/ci"
 mkdir -p "$QA_EVIDENCE"
 export ANDROID_AVD_HOME="${RUNNER_TEMP:-/tmp}/qingliao-avd"
@@ -24,7 +27,7 @@ sudo chmod a+rw /dev/kvm
 emulator_pid=$!
 booted=false
 for i in $(seq 1 120); do
-  if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+  if [[ "$(timeout 5 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
     booted=true; break
   fi
   kill -0 "$emulator_pid" 2>/dev/null || { cat "$QA_EVIDENCE/emulator.log"; exit 1; }
