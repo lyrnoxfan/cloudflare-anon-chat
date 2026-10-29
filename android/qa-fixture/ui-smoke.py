@@ -121,8 +121,12 @@ try:
         fully_visible = []
         for n in avatars:
             x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds', '')))
-            if y1 >= 204 and y2 <= 1216:
-                fully_visible.append((n, y2-y1))
+            height = y2-y1
+            # The accessibility bounds are clipped to the viewport; y1 == 204 can still
+            # mean the avatar is hidden by the sticky header. Accept only a full-size,
+            # fully visible avatar, and keep scrolling until that evidence exists.
+            if y1 > 204 and y2 <= 1216 and height >= 58:
+                fully_visible.append((n, height))
         if fully_visible:
             break
         # Finger-down scroll moves older content away from the header and into view.
