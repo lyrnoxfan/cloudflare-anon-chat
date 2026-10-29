@@ -623,8 +623,8 @@ public final class ChatFragment extends Fragment {
     uploadPanel.addView(uploadProgress, progressParams);
     LinearLayout uploadActions = new LinearLayout(getActivity());
     uploadActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-    uploadRetry = button("重试", v -> { if (uploadJob != null) runUpload(uploadJob); });
-    uploadCancel = button("取消上传", v -> cancelUpload());
+    uploadRetry = button("重试", () -> { if (uploadJob != null) runUpload(uploadJob); });
+    uploadCancel = button("取消上传", this::cancelUpload);
     uploadActions.addView(uploadRetry);
     uploadActions.addView(uploadCancel);
     uploadPanel.addView(uploadActions);
@@ -2678,7 +2678,7 @@ public final class ChatFragment extends Fragment {
             } finally {
               if (!ok) f.delete();
             }
-            long cap = uploadLimit(mime, voice);
+            long cap = uploadLimit(mime, false);
             if (f.length() <= 0 || f.length() > cap) {
               f.delete();
               throw new IOException("文件为空或超过 " + android.text.format.Formatter.formatShortFileSize(ctx, cap) + " 的限制");
