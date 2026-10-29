@@ -9,6 +9,9 @@ import android.graphics.*;
 import android.graphics.drawable.*;
 import android.util.LruCache;
 import android.media.*;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.*;
 import android.provider.OpenableColumns;
@@ -37,6 +40,9 @@ public final class ChatFragment extends Fragment {
   private final ExecutorService callIo = Executors.newSingleThreadExecutor();
   private NativeCore core;
   private ChatNet net;
+  private ConnectivityManager connectivityManager;
+  private ConnectivityManager.NetworkCallback connectivityCallback;
+  private final NetworkRecoveryGate networkRecoveryGate = new NetworkRecoveryGate();
   private WebSocket socket;
   private int generation = 0, retries = 0;
   private boolean started = false, dead = false, busy = false, historyBusy = false, sessionExpired = false;
@@ -718,13 +724,64 @@ public final class ChatFragment extends Fragment {
   public void onStart() {
     super.onStart();
     started = true;
+    registerNetworkMonitor();
     if (session == null) restoreSession();
     else enter();
+  }
+
+  private void registerNetworkMonitor() {
+    if (connectivityCallback != null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+    Context context = getContext();
+    if (context == null) return;
+    ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+    if (manager == null) return;
+    connectivityManager = manager;
+    networkRecoveryGate.reset(hasValidatedInternet(manager));
+    ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+      @Override public void onAvailable(Network network) { observeConnectivity(); }
+      @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+        observeConnectivity();
+      }
+      @Override public void onLost(Network network) { observeConnectivity(); }
+    };
+    connectivityCallback = callback;
+    try {
+      manager.registerDefaultNetworkCallback(callback);
+    } catch (RuntimeException unavailable) {
+      connectivityCallback = null;
+      connectivityManager = null;
+    }
+  }
+
+  private void observeConnectivity() {
+    main.post(() -> {
+      if (!started || connectivityManager == null) return;
+      boolean online = hasValidatedInternet(connectivityManager);
+      if (networkRecoveryGate.observe(online)) {
+        // The browser calls enter() as soon as the device raises its online event.
+        // Keep Android's retry backoff, but rejoin immediately when validated internet returns.
+        main.removeCallbacks(reconnect);
+        enter();
+      }
+    });
+  }
+
+  private static boolean hasValidatedInternet(ConnectivityManager manager) {
+    try {
+      Network active = manager.getActiveNetwork();
+      NetworkCapabilities capabilities = active == null ? null : manager.getNetworkCapabilities(active);
+      return capabilities != null
+          && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+          && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    } catch (RuntimeException unavailable) {
+      return false;
+    }
   }
 
   @Override
   public void onStop() {
     started = false;
+    unregisterNetworkMonitor();
     clearPendingCall();
     main.removeCallbacks(callClock);
     main.removeCallbacks(callPoll);
@@ -736,6 +793,17 @@ public final class ChatFragment extends Fragment {
     stopInlineVideo();
     if (mediaDialog != null) mediaDialog.dismiss();
     super.onStop();
+  }
+
+  private void unregisterNetworkMonitor() {
+    ConnectivityManager manager = connectivityManager;
+    ConnectivityManager.NetworkCallback callback = connectivityCallback;
+    connectivityManager = null;
+    connectivityCallback = null;
+    if (manager != null && callback != null) {
+      try { manager.unregisterNetworkCallback(callback); }
+      catch (RuntimeException ignored) {}
+    }
   }
 
   @Override

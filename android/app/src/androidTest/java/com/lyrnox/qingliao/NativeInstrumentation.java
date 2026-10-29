@@ -32,6 +32,16 @@ public final class NativeInstrumentation extends Instrumentation {
         finish(-1, result);
         return;
       }
+      NetworkRecoveryGate recovery = new NetworkRecoveryGate();
+      recovery.reset(true);
+      check(!recovery.observe(true), "initial online callback does not duplicate join");
+      check(!recovery.observe(false), "network loss waits for return");
+      check(recovery.observe(true), "validated network return triggers immediate rejoin");
+      check(!recovery.observe(true), "duplicate online callbacks do not duplicate rejoin");
+      recovery.reset(false);
+      check(!recovery.observe(false), "offline startup stays pending");
+      check(recovery.observe(true), "offline startup joins when validated internet arrives");
+      check(!recovery.observe(true), "offline recovery is consumed once");
       try (NativeCore core = new NativeCore()) {
       check(core.run("reset", "room", "lobby").getString("room").equals("lobby"), "reset");
       check("回复 小青：你好\n".equals(ReplyDraft.prefix(" 小青 ", "你好")), "reply header matches web contract");
