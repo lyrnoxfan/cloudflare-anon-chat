@@ -63,6 +63,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       NativeCallSession.Listener listener = new NativeCallSession.Listener(){
         public void onStatus(String text) { status.set(text); }
         public void onFailure(String text) { failure.set(text); }
+        public void onRecoverableFailure(String text, String callId, String kind, boolean canRejoin) { failure.set(text); }
         public void onLocalVideo(VideoTrack track,EglBase.Context egl) {}
         public void onRemoteVideo(String memberId, String memberName, VideoTrack track,EglBase.Context egl) {
           if (memberId == null) return;

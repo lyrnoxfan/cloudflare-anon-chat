@@ -18,6 +18,7 @@ final class NativeCallSession {
   interface Listener {
     void onStatus(String message);
     void onFailure(String message);
+    void onRecoverableFailure(String message, String callId, String kind, boolean canRejoin);
     void onRemoteVideo(String memberId, String nickname, VideoTrack track, EglBase.Context eglContext);
     void onLocalVideo(VideoTrack track, EglBase.Context eglContext);
   }
@@ -35,7 +36,9 @@ final class NativeCallSession {
   private final Set<String> subscribedMembers = ConcurrentHashMap.newKeySet();
 
   private String kind, callId, cap;
-  private boolean owner, joined;
+  private boolean owner, joined, groupCall;
+  private volatile boolean publisherReady;
+  private volatile long publisherDisconnectedAt;
   private boolean microphoneEnabled = true, cameraEnabled = true, frontFacing = true;
   private PeerConnectionFactory factory;
   private PeerConnection peer;
@@ -103,6 +106,7 @@ final class NativeCallSession {
       core.run("call_started", "call", call);
       callId = call.getString("id");
       owner = !selfId.isEmpty() && selfId.equals(call.optString("owner"));
+      groupCall = call.isNull("target") || call.optString("target", "").isEmpty();
       checkStopped();
 
       JSONObject joinResponse = net.callApi(room, "call-join", new JSONObject().put("callId", callId), null);
@@ -119,6 +123,7 @@ final class NativeCallSession {
       awaitConnected(peer, 20000);
       net.callApi(room, "call-ready", new JSONObject().put("callId", callId), cap);
       core.run("call_ready");
+      publisherReady = true;
       listener.onStatus("本机媒体已发布，正在等待其他参会者并订阅其媒体");
       heartbeat.scheduleAtFixedRate(this::beat, 12, 12, TimeUnit.SECONDS);
       heartbeat.scheduleWithFixedDelay(this::pollRemoteMembers, 2, 3, TimeUnit.SECONDS);
@@ -135,7 +140,7 @@ final class NativeCallSession {
     initializeFactory();
     if (iceServers.isEmpty()) iceServers = parseIceServers(rawIceServers);
     if (iceServers.isEmpty()) throw new IOException("通话服务没有提供 ICE 服务器");
-    peer = factory.createPeerConnection(rtcConfiguration(), new NoopObserver());
+    peer = factory.createPeerConnection(rtcConfiguration(), new PublisherObserver());
     if (peer == null) throw new IOException("无法建立 WebRTC 连接");
 
     MediaConstraints audioConstraints = new MediaConstraints();
@@ -331,8 +336,12 @@ final class NativeCallSession {
           throw new IOException("远端媒体连接中断");
         if (!subscriberReceivedMedia) {
           subscriberReceivedMedia = hasInboundMedia(subscriberPeer);
-          if (!subscriberReceivedMedia && SystemClock.elapsedRealtime() - subscriberStartedAt > 30000)
+          if (subscriberReceivedMedia) {
+            subscriberRecoveries = 0;
+            listener.onStatus("远端媒体已恢复");
+          } else if (SystemClock.elapsedRealtime() - subscriberStartedAt > 30000) {
             throw new IOException("远端连接未收到媒体，正在重建接收连接");
+          }
         }
       }
       JSONArray subscribe = new JSONArray();
@@ -374,7 +383,7 @@ final class NativeCallSession {
           resetSubscriber();
           listener.onStatus("正在重新连接远端媒体：" + safeMessage(e));
         } catch (Exception resetError) { failCall("远端媒体恢复失败：" + safeMessage(resetError)); }
-      } else failCall("远端媒体连接失败，请重新加入：" + safeMessage(e));
+      } else recoverableFailure("远端媒体连接失败，请重新加入：" + safeMessage(e));
     }
   }
 
@@ -446,18 +455,51 @@ final class NativeCallSession {
             .put("sessionDescription", new JSONObject().put("type", "answer").put("sdp", local.description)), cap);
     core.run("call_answered");
     // A successful HTTP answer and onTrack are not proof of an established receiver.
-    awaitConnected(subscriberPeer, 12000);
+    // Match the web client's 20s connection window; 12s caused premature resets under
+    // concurrent three-emulator negotiation even though signaling had completed.
+    awaitConnected(subscriberPeer, 20000);
     subscriberStartedAt = SystemClock.elapsedRealtime();
     subscriberReceivedMedia = false;
   }
 
-  private synchronized void failCall(String message) {
+  private synchronized void failCall(String message) { finishCallFailure(message, false); }
+
+  private synchronized void recoverableFailure(String message) { finishCallFailure(message, true); }
+
+  private void finishCallFailure(String message, boolean allowGroupRejoin) {
     if (!stopRequested.compareAndSet(false, true)) return;
+    String failedCallId = callId;
+    boolean canRejoin = allowGroupRejoin && groupCall && joined && failedCallId != null && !failedCallId.isEmpty();
     heartbeat.shutdownNow();
     cleanupLocal();
     try { core.run("call_failed"); } catch (Exception ignored) {}
     signalCleanup();
-    listener.onFailure(message);
+    if (canRejoin) listener.onRecoverableFailure(message, failedCallId, kind, true);
+    else listener.onFailure(message);
+  }
+
+  private final class PublisherObserver extends NoopObserver {
+    @Override public void onConnectionChange(PeerConnection.PeerConnectionState state) {
+      if (!publisherReady || stopRequested.get()) return;
+      if (state == PeerConnection.PeerConnectionState.CONNECTED) {
+        publisherDisconnectedAt = 0;
+      } else if (state == PeerConnection.PeerConnectionState.FAILED) {
+        try { heartbeat.execute(() -> recoverableFailure("本机媒体连接失败，正在尝试重新加入通话")); }
+        catch (RejectedExecutionException ignored) {}
+      } else if (state == PeerConnection.PeerConnectionState.DISCONNECTED) {
+        final long mark = SystemClock.elapsedRealtime();
+        publisherDisconnectedAt = mark;
+        try {
+          heartbeat.schedule(() -> {
+            synchronized (NativeCallSession.this) {
+              if (!stopRequested.get() && publisherReady && publisherDisconnectedAt == mark &&
+                  peer != null && peer.connectionState() == PeerConnection.PeerConnectionState.DISCONNECTED)
+                recoverableFailure("网络中断超过恢复等待时间，正在尝试重新加入通话");
+            }
+          }, 6, TimeUnit.SECONDS);
+        } catch (RejectedExecutionException ignored) {}
+      }
+    }
   }
 
   void requestStop() { stopRequested.set(true); }

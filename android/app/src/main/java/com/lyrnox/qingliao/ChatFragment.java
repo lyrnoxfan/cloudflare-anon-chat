@@ -111,6 +111,10 @@ public final class ChatFragment extends Fragment {
   private AudioFocusLease mediaFocus;
   private int pendingCallGeneration = -1;
   private NativeCallSession nativeCall;
+  private int nativeCallRecoveryAttempts;
+  private boolean callRecoveryPending;
+  private int callRecoveryGeneration = -1;
+  private String callRecoveryId = "", callRecoveryKind = "";
   private String pendingCallKind = "";
   private String pendingCallId = "";
   private String pendingCallTargetId = "";
@@ -1169,7 +1173,7 @@ public final class ChatFragment extends Fragment {
   }
 
   private void startNativeCall(String kind, String expectedCallId, String targetId) {
-    if (!started || getActivity() == null || session == null || nativeCall != null) return;
+    if (!started || getActivity() == null || session == null || nativeCall != null || callRecoveryPending) return;
     stopPlayer();
     stopInlineVideo();
     cancelRecording();
@@ -1181,7 +1185,44 @@ public final class ChatFragment extends Fragment {
             main.post(() -> {
               if (nativeCall == callRef[0] && getActivity() != null) {
                 setStatus(message);
+                if ("远端媒体已恢复".equals(message)) nativeCallRecoveryAttempts = 0;
                 renderCallPanel();
+              }
+            });
+          }
+          @Override public void onRecoverableFailure(String message, String callId, String failedKind, boolean canRejoin) {
+            main.post(() -> {
+              if (nativeCall != callRef[0]) return;
+              nativeCall = null;
+              clearRemoteRenderer();
+              clearLocalRenderer();
+              renderCallPanel();
+              if (canRejoin && started && getActivity() != null && nativeCallRecoveryAttempts < 2) {
+                nativeCallRecoveryAttempts++;
+                callRecoveryPending = true;
+                callRecoveryGeneration = generation;
+                callRecoveryId = callId;
+                callRecoveryKind = failedKind;
+                setStatus("媒体连接中断，准备重新加入（" + nativeCallRecoveryAttempts + "/2）");
+                toast(message);
+                final int attemptGeneration = generation;
+                main.postDelayed(() -> {
+                  if (!callRecoveryPending || callRecoveryGeneration != attemptGeneration || generation != attemptGeneration || !started) return;
+                  String retryId = callRecoveryId, retryKind = callRecoveryKind;
+                  callRecoveryPending = false;
+                  callRecoveryId = "";
+                  callRecoveryKind = "";
+                  startNativeCall(retryKind, retryId, "");
+                }, 1500);
+              } else {
+                callRecoveryPending = false;
+                nativeCallRecoveryAttempts = 0;
+                callRecoveryId = "";
+                callRecoveryKind = "";
+                if (getActivity() != null) {
+                  setStatus("通话已结束");
+                  toast(message);
+                }
               }
             });
           }
@@ -1214,7 +1255,7 @@ public final class ChatFragment extends Fragment {
         try {
           call.start(kind, expectedCallId, targetId);
           main.post(() -> {
-            if (nativeCall == callRef[0]) refreshCallState();
+            if (nativeCall == callRef[0]) { callRecoveryPending = false; refreshCallState(); }
           });
         } catch (Exception e) {
           call.stop();
@@ -1564,6 +1605,10 @@ public final class ChatFragment extends Fragment {
   }
 
   private void stopNativeCall() {
+    callRecoveryPending = false;
+    nativeCallRecoveryAttempts = 0;
+    callRecoveryId = "";
+    callRecoveryKind = "";
     clearRemoteRenderer();
     clearLocalRenderer();
     NativeCallSession call = nativeCall;
