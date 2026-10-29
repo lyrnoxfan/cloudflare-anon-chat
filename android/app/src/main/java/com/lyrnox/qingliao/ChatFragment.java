@@ -82,7 +82,7 @@ public final class ChatFragment extends Fragment {
   private MediaRecorder recorder;
   private File recording;
   private long recordStart;
-  private AlertDialog recordingDialog, nicknamePrompt;
+  private AlertDialog recordingDialog, nicknamePrompt, attachmentPrompt;
   private MediaPlayer player;
   private VideoView activeInlineVideo;
   private File activeInlineVideoFile;
@@ -230,7 +230,12 @@ public final class ChatFragment extends Fragment {
     b.setTextSize(20);
     b.setGravity(Gravity.CENTER);
     b.setPadding(0, 0, 0, 0);
-    b.setBackgroundColor(Color.TRANSPARENT);
+    if (ChatIconDrawable.supports(description)) {
+      b.setText("");
+      Drawable icon = new ChatIconDrawable(description, ink, getResources().getDisplayMetrics().density);
+      b.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(
+          nightMode ? 0x33ffffff : 0x22000000), icon, null));
+    } else b.setBackgroundColor(Color.TRANSPARENT);
     b.setContentDescription(description);
     b.setMinHeight(dp(40));
     b.setMinimumHeight(dp(40));
@@ -454,6 +459,7 @@ public final class ChatFragment extends Fragment {
     TextView gateLabel = text("昵称", 12, ink);
     sessionGate.addView(gateLabel);
     gateName = field("", false);
+    gateName.setContentDescription("昵称");
     gateName.setText(nickname);
     gateName.setFilters(new InputFilter[] {new InputFilter.LengthFilter(32)});
     GradientDrawable gateField = shape(pale, 24);
@@ -545,6 +551,7 @@ public final class ChatFragment extends Fragment {
     composerPill.setBackground(shape(pale, 30));
     attach = iconButton("＋", "添加照片或文件", this::pickFile);
     input = field("说点什么…", false);
+    input.setContentDescription("消息内容");
     input.setBackgroundColor(Color.TRANSPARENT);
     input.setPadding(dp(5), dp(9), dp(3), dp(9));
     input.setSingleLine(false);
@@ -622,6 +629,7 @@ public final class ChatFragment extends Fragment {
     stopNativeCall();
     disconnect();
     cancelRecording();
+    if (attachmentPrompt != null) attachmentPrompt.dismiss();
     stopPlayer();
     stopInlineVideo();
     super.onStop();
@@ -2412,7 +2420,8 @@ public final class ChatFragment extends Fragment {
       f.delete();
       return;
     }
-    new AlertDialog.Builder(getActivity())
+    final boolean[] submitted = {false};
+    AlertDialog.Builder builder = new AlertDialog.Builder(getActivity())
         .setTitle(voice ? "发送录音" : "发送附件")
         .setMessage(
             name
@@ -2421,20 +2430,12 @@ public final class ChatFragment extends Fragment {
                 + "\n将发送到「"
                 + roomName
                 + "」")
-        .setNegativeButton(
-            "取消",
-            (d, w) -> {
-              busy = false;
-              f.delete();
-            })
-        .setOnCancelListener(
-            d -> {
-              busy = false;
-              f.delete();
-            })
+        .setNegativeButton("取消", null)
         .setPositiveButton(
             "发送",
             (d, w) -> {
+              submitted[0] = true;
+              stopPlayer();
               setStatus("正在上传…");
               task(
                   () -> {
@@ -2476,7 +2477,45 @@ public final class ChatFragment extends Fragment {
                     refreshSnapshot(true);
                   });
             })
-        .show();
+        ;
+    if (voice) builder.setNeutralButton("试听", null);
+    attachmentPrompt = builder.create();
+    AlertDialog prompt = attachmentPrompt;
+    prompt.setOnDismissListener(d -> {
+      stopPlayer();
+      if (!submitted[0]) { busy = false; f.delete(); }
+      if (attachmentPrompt == prompt) attachmentPrompt = null;
+    });
+    prompt.show();
+    if (voice) prompt.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+      if (player != null) {
+        stopPlayer();
+        prompt.getButton(AlertDialog.BUTTON_NEUTRAL).setText("试听");
+        return;
+      }
+      try {
+        player = new MediaPlayer();
+        player.setAudioAttributes(new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+        player.setDataSource(f.getAbsolutePath());
+        player.setOnPreparedListener(p -> {
+          p.start();
+          prompt.getButton(AlertDialog.BUTTON_NEUTRAL).setText("停止试听");
+        });
+        player.setOnCompletionListener(p -> {
+          stopPlayer();
+          prompt.getButton(AlertDialog.BUTTON_NEUTRAL).setText("试听");
+        });
+        player.setOnErrorListener((p, what, extra) -> {
+          stopPlayer();
+          prompt.getButton(AlertDialog.BUTTON_NEUTRAL).setText("试听");
+          toast("录音无法播放，可以取消后重新录制");
+          return true;
+        });
+        player.prepareAsync();
+      } catch (Exception e) { stopPlayer(); toast("无法试听录音"); }
+    });
   }
 
   private void startRecording() {

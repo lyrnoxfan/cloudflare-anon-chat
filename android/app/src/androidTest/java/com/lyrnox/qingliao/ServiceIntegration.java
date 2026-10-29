@@ -8,9 +8,12 @@ import java.util.concurrent.*;
 import okhttp3.*;
 import org.json.*;
 
-/** Explicit opt-in isolated test-room exercise against the existing test site, not a mock. */
+/** Explicit opt-in native-client exercise against the local real Worker/D1/R2/DO runtime. */
 final class ServiceIntegration {
   static String run(Context context) throws Exception {
+    if (!BuildConfig.APPLICATION_ID.endsWith(".qa")
+        || !"http://127.0.0.1:8000".equals(ChatNet.BASE))
+      throw new SecurityException("Service test requires the isolated loopback QA build");
     int checks = 0;
     String rid = "";
     StringBuilder report = new StringBuilder();
@@ -37,6 +40,10 @@ final class ServiceIntegration {
         if (e.status != 403) throw e;
         checks++;
       }
+      try {
+        b.api(path + "history", null);
+        throw new AssertionError("unjoined private history accepted");
+      } catch (ChatNet.ApiError e) { if (e.status != 403) throw e; checks++; }
       b.api(path + "join", core.run("join", "password", pw));
       checks++;
       CountDownLatch ready = new CountDownLatch(1),
@@ -92,6 +99,10 @@ final class ServiceIntegration {
         core.run("reset", "room", rid);
         core.run("history", "messages", history.getJSONArray("messages"));
         checks++;
+        try {
+          b.api(path + "delete/" + message.getString("id"), new JSONObject());
+          throw new AssertionError("peer deletion accepted");
+        } catch (ChatNet.ApiError e) { if (e.status != 403) throw e; checks++; }
         a.api(path + "delete/" + message.getString("id"), new JSONObject());
         if (!deleted.await(30, TimeUnit.SECONDS)) throw new AssertionError("delete event missing");
         checks++;
@@ -141,7 +152,7 @@ final class ServiceIntegration {
       }
       report
           .append(checks)
-          .append(" existing-service assertions passed; isolated room ")
+          .append(" local Worker/D1/R2/DO assertions passed; isolated room ")
           .append(rid)
           .append(" remains; text/image test messages were deleted by their test author.\n");
     }

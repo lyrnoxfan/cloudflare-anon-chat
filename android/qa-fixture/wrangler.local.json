@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "qingliao-local-android-qa",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2026-10-27",
+  "assets": {"directory": "../../public", "binding": "ASSETS", "run_worker_first": true},
+  "d1_databases": [{"binding": "DB", "database_name": "chat", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../migrations"}],
+  "r2_buckets": [{"binding": "MEDIA", "bucket_name": "qingliao-local-qa-media"}],
+  "durable_objects": {"bindings": [{"name": "ROOMS", "class_name": "ChatRoom"}, {"name": "GUARD", "class_name": "Guard"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["ChatRoom", "Guard"]}],
+  "vars": {"DEV_LOCAL": "true", "R2_BUCKET": "qingliao-local-qa-media"},
+  "observability": {"enabled": false}
+}
