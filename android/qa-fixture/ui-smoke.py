@@ -180,6 +180,13 @@ try:
     passed('authorized fixture image decodes in native full-screen viewer')
     # The system change recreates the Activity: also exercises durable session restoration.
     adb('shell','cmd','uimode','night','yes')
+    # API29 defers night-mode configuration while the device is active. Let the
+    # system apply it through a real inactive/wake transition, not app theme overrides.
+    adb('shell','input','keyevent','223')
+    time.sleep(2)
+    adb('shell','input','keyevent','224')
+    adb('shell','input','keyevent','82')
+    (OUT/'night-system.txt').write_bytes(adb('shell','dumpsys','uimode'))
     locate('消息内容','content-desc')
     locate('打开房间导航','content-desc')
     wait_palette(True)
@@ -187,6 +194,10 @@ try:
     passed('system dark mode recreates and restores chat session')
     # Return to light for a directly comparable screenshot.
     adb('shell','cmd','uimode','night','no')
+    adb('shell','input','keyevent','223')
+    time.sleep(2)
+    adb('shell','input','keyevent','224')
+    adb('shell','input','keyevent','82')
     locate('消息内容','content-desc')
     wait_palette(False)
     capture('07-chat-restored')

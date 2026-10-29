@@ -22,8 +22,19 @@ try:
     if not invite: raise RuntimeError('Owner did not create isolated SFU invite; see owner.txt')
     # The invite is ephemeral test data, never a session or provider credential; keep it out of logs.
     peer=begin('emulator-5556','peer',('-e','room',invite['room'],'-e','password',invite['password']))
+    # Each participant remains publishing until both have independently measured inbound media.
+    ready=set(); deadline=time.monotonic()+230
+    while time.monotonic()<deadline:
+        for serial,role in [('emulator-5554','owner'),('emulator-5556','peer')]:
+            r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat','files/sfu-ready'],capture_output=True,timeout=10)
+            if r.returncode==0 and b'media-ready' in r.stdout: ready.add(role)
+        if len(ready)==2: break
+        if any(p.poll() is not None for p,f in processes): break
+        time.sleep(1)
+    for serial in ('emulator-5554','emulator-5556'):
+        subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
     for p,f in processes:
-        p.wait(timeout=240); f.flush()
+        p.wait(timeout=30); f.flush()
     for role in ('owner','peer'):
         text=(out/f'{role}.txt').read_text()
         print(text)

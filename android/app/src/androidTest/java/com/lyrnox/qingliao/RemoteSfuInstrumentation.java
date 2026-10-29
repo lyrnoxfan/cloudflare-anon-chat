@@ -81,8 +81,14 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       if(call.toggleCamera()) throw new AssertionError("Camera disable failed");
       if(!call.toggleCamera()) throw new AssertionError("Camera enable failed");
       result.putString("stream","PASS native SFU "+(owner?"owner":"peer")+": decodedVideoFrames="+frames.get()+", receivedAudioPackets="+audioPackets+", receivedVideoBytes="+videoBytes+"; emulated camera/microphone, not physical devices\n");
-      // Let the other side collect its own counters before either participant leaves.
-      Thread.sleep(owner?10000:5000);
+      // Do not hang up merely because this receiver is ready: the other receiver may
+      // still be gathering ICE. The host releases both only after both measured media.
+      File ready = new File(getTargetContext().getFilesDir(), "sfu-ready");
+      File release = new File(getTargetContext().getFilesDir(), "sfu-release");
+      java.nio.file.Files.write(ready.toPath(), "media-ready".getBytes("UTF-8"));
+      long releaseDeadline = System.currentTimeMillis() + 150000;
+      while (!release.exists() && System.currentTimeMillis() < releaseDeadline) Thread.sleep(500);
+      if (!release.exists()) throw new AssertionError("Peer did not confirm media before hangup barrier");
       call.stop(); call=null;
       JSONObject state=net.callApi(room,"call-state",null,null).optJSONObject("call");
       if(state!=null && state.optBoolean("joined")) throw new AssertionError("Native leave did not remove participant");
