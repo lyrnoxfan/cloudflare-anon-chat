@@ -174,6 +174,10 @@ public final class ChatFragment extends Fragment {
     void done(Object value) throws Exception;
   }
 
+  interface Failure {
+    void failed(Exception error);
+  }
+
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
