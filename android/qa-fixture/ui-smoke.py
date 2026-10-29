@@ -179,7 +179,10 @@ try:
     tap('关闭图片预览', 'content-desc')
     passed('authorized fixture image decodes in native full-screen viewer')
     # The system change recreates the Activity: also exercises durable session restoration.
-    adb('shell','cmd','uimode','night','yes')
+    night_output = adb('shell','cmd','uimode','night','yes')
+    (OUT/'night-command.txt').write_bytes(night_output)
+    state = adb('shell','dumpsys','uimode')
+    assert b'mNightMode=2' in state, 'System rejected requested night mode; see night-command.txt'
     # API29 defers night-mode configuration while the device is active. Let the
     # system apply it through a real inactive/wake transition, not app theme overrides.
     adb('shell','input','keyevent','223')
