@@ -38,7 +38,7 @@ for serial in emulator-5554 emulator-5556 emulator-5558; do
   # instrumentation run cannot satisfy the serialized-join gates.
   adb -s "$serial" shell run-as com.lyrnox.qingliao.qa rm -f \
     files/sfu-invite.json files/sfu-ready files/sfu-publisher-ready \
-    files/sfu-pair-ready files/sfu-metrics.json files/sfu-diagnostics.json
+    files/sfu-pair-ready files/sfu-verify-group files/sfu-metrics.json files/sfu-diagnostics.json
   # The instrumentation launches the peer Activity only after its own persistent
   # test session has been created, so its ChatNet loads the intended cookie.
  done

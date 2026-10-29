@@ -84,6 +84,10 @@ try:
     # Activity setup has sequential 45s/45s/30s UI/session waits before its own
     # 120s publisher-ready timeout. Let instrumentation reach its intended limit.
     wait_marker('emulator-5556','files/sfu-publisher-ready','Activity peer publisher',260)
+    # The owner and extra remain in the initial two-party phase until the Activity
+    # publisher is fully ready. Now signal the unchanged two-remote-track assertion.
+    for serial in ('emulator-5554','emulator-5558'):
+        subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-verify-group'],check=True,timeout=10)
     # Keep all three real clients publishing until each receiver sees two distinct
     # remote video tracks; peer additionally proves the Activity lays out both remotes.
     expected={'owner','peer','extra'}; ready=set(); deadline=time.monotonic()+300

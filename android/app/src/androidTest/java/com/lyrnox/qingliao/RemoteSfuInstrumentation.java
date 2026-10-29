@@ -121,14 +121,24 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       // an Activity object allocated before its asynchronous startup has begun.
       java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-publisher-ready").toPath(),
           "publisher-ready".getBytes("UTF-8"));
-      long deadline=System.currentTimeMillis()+150000;
+      // The serialized two-party phase can take time before the Activity peer starts.
+      // Keep owner/extra alive through the runner's later three-party phase; the final
+      // two-track requirement below remains unchanged.
+      long deadline=System.currentTimeMillis()+((owner || extra) ? 600000 : 300000);
       long audioPackets=0,videoBytes=0;
       int renderedRemoteCount=0;
       boolean pairReadyWritten = false;
+      boolean groupVerificationStarted = false;
       AtomicReference<Boolean> tracksDecoded = new AtomicReference<>(false);
       AtomicReference<String> liveTrackDiagnostics = new AtomicReference<>("[]");
       while(System.currentTimeMillis()<deadline) {
         if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
+        if (owner || extra) {
+          groupVerificationStarted = new File(getTargetContext().getFilesDir(), "sfu-verify-group").isFile();
+        } else {
+          groupVerificationStarted = true;
+        }
+        int requiredRemoteTracks = (owner || extra) && !groupVerificationStarted ? 1 : 2;
         if (!owner && !extra) {
           if (field(fragment, "nativeCall") != call)
             throw new AssertionError("Activity call ended before receiving media; status=" + activityStatus(fragment));
@@ -178,7 +188,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
             throw new AssertionError("Group video grid is missing distinct participant labels: " + labels.get());
         } else {
           renderedRemoteCount = remote.size();
-          tracksDecoded.set(renderedRemoteCount >= 2 && remote.values().stream().allMatch(track -> {
+          tracksDecoded.set(renderedRemoteCount >= requiredRemoteTracks && remote.values().stream().allMatch(track -> {
             AtomicInteger count = framesByTrack.get(track);
             return count != null && count.get() >= 10;
           }));
@@ -199,11 +209,13 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         diagnosticStatus = status.get();
         writeMediaMetrics(args.getString("role", "unknown"), stats, stats(call, "peer"));
         writeDiagnostic(args.getString("role", "unknown"), diagnosticStage, diagnosticStatus, renderedRemoteCount, "");
-        if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 && renderedRemoteCount >= 2) break;
+        if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 &&
+            renderedRemoteCount >= requiredRemoteTracks && groupVerificationStarted) break;
         Thread.sleep(1500);
       }
-      if (decodedFrames.get() < 20 || !tracksDecoded.get() || audioPackets <= 10 || videoBytes <= 0 || renderedRemoteCount < 2)
-        throw new AssertionError("Remote group media incomplete: remoteVideoTracks="+renderedRemoteCount+", tracksDecoded="+tracksDecoded.get()+", visibleTrackFrames="+liveTrackDiagnostics.get()+", frames="+decodedFrames.get()+", allObservedPerTrackFrames="+frameCounts()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
+      if (!groupVerificationStarted || decodedFrames.get() < 20 || !tracksDecoded.get() || audioPackets <= 10 ||
+          videoBytes <= 0 || renderedRemoteCount < 2)
+        throw new AssertionError("Remote group media incomplete: groupVerificationStarted="+groupVerificationStarted+", requiredRemoteTracks=2, remoteVideoTracks="+renderedRemoteCount+", tracksDecoded="+tracksDecoded.get()+", visibleTrackFrames="+liveTrackDiagnostics.get()+", frames="+decodedFrames.get()+", allObservedPerTrackFrames="+frameCounts()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
       if (owner || extra) {
         if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
         if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
