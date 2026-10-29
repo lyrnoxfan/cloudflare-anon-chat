@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import struct
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -52,6 +53,21 @@ def tap(key, attr='text', **kwargs):
 def capture(name):
     (OUT / f'{name}.png').write_bytes(adb('exec-out','screencap','-p'))
     (OUT / f'{name}.xml').write_bytes(ET.tostring(tree(), encoding='utf-8'))
+
+def wait_palette(dark):
+    # Configuration changes/recreation are asynchronous; an unchanged accessibility
+    # tree is not proof that the new palette is painted. Sample the content background.
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        raw = adb('exec-out', 'screencap')
+        width, height, fmt = struct.unpack_from('<III', raw)
+        # Android API 29 raw screenshot header is 12 bytes, RGBA_8888.
+        if fmt == 1 and len(raw) == 12 + width * height * 4:
+            rgb = raw[12 + (200 * width + 3) * 4:12 + (200 * width + 3) * 4 + 3]
+            if (max(rgb) < 100) if dark else (min(rgb) > 200):
+                return
+        time.sleep(0.5)
+    raise AssertionError('Requested palette was not actually painted: dark=' + str(dark))
 
 def passed(name):
     checks.append(name)
@@ -119,15 +135,42 @@ try:
     locate('消息内容','content-desc')
     assert not any(n.get('text') == '通过房号加入' for n in tree().iter('node'))
     passed('Back closes the room drawer without leaving Activity')
+    # Inspect actual media controls, not merely the source code/card presence.
+    tap('▶  轻触播放')
+    # A short clip may finish before UIAutomator returns, so accept either painted status.
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        labels = [n.get('text', '') for n in tree().iter('node')]
+        if '视频正在播放' in labels or '视频播放结束' in labels: break
+        time.sleep(0.5)
+    else: raise AssertionError('Inline video did not start/decode')
+    capture('06-inline-video')
+    passed('fixture video starts through the actual inline Android player')
+    # Move to the preceding media messages without tapping outside the scroll view.
+    for _ in range(5):
+        try:
+            image = locate('书店.png', 'content-desc', timeout=1)
+            break
+        except AssertionError:
+            adb('shell','input','swipe','360','400','360','850','500')
+    else: raise AssertionError('Image card was not reachable by scrolling')
+    tap_node(image)
+    locate('关闭图片预览', 'content-desc')
+    locate('图片全屏预览，可双指缩放：书店.png', 'content-desc')
+    capture('06-image-viewer')
+    tap('关闭图片预览', 'content-desc')
+    passed('authorized fixture image decodes in native full-screen viewer')
     # The system change recreates the Activity: also exercises durable session restoration.
     adb('shell','cmd','uimode','night','yes')
     locate('消息内容','content-desc')
     locate('打开房间导航','content-desc')
+    wait_palette(True)
     capture('06-chat-dark')
     passed('system dark mode recreates and restores chat session')
     # Return to light for a directly comparable screenshot.
     adb('shell','cmd','uimode','night','no')
     locate('消息内容','content-desc')
+    wait_palette(False)
     capture('07-chat-restored')
     passed('light mode restores after configuration change')
     (OUT / 'ui-result.json').write_text(json.dumps({'passed':True,'checks':checks},ensure_ascii=False,indent=2))
