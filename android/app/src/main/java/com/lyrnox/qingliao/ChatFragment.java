@@ -77,6 +77,7 @@ public final class ChatFragment extends Fragment {
   private TextView replyName, replyText;
   private String replyPrefix = "";
   private MessageAdapter adapter;
+  private boolean followLatestMessages = true;
   private PopupWindow messagePopup;
   private Button older, send, attach, voice, unread, emojiButton;
   private MediaRecorder recorder;
@@ -387,12 +388,23 @@ public final class ChatFragment extends Fragment {
     list.setCacheColorHint(bg);
     list.setPadding(dp(10), dp(6), dp(10), dp(8));
     list.setClipToPadding(false);
-    list.setTranscriptMode(ListView.TRANSCRIPT_MODE_DISABLED);
+    // Keep the tail anchored while the composer/IME changes the available height.
+    // A one-shot setSelection can otherwise be overwritten by ListView's resize layout.
+    list.setStackFromBottom(true);
+    list.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
+    list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+      if (b - t != ob - ot && followLatestMessages) scrollToLatestMessage();
+    });
     adapter = new MessageAdapter();
     list.setAdapter(adapter);
     list.setOnScrollListener(
         new AbsListView.OnScrollListener() {
-          @Override public void onScrollStateChanged(AbsListView view, int scrollState) {}
+          @Override public void onScrollStateChanged(AbsListView view, int scrollState) {
+            if (scrollState == AbsListView.OnScrollListener.SCROLL_STATE_TOUCH_SCROLL)
+              followLatestMessages = false;
+            else if (scrollState == AbsListView.OnScrollListener.SCROLL_STATE_IDLE)
+              followLatestMessages = isNearBottom();
+          }
           @Override public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
             if (isNearBottom() && unread != null) unread.setVisibility(View.GONE);
           }
@@ -1825,6 +1837,7 @@ public final class ChatFragment extends Fragment {
 
   private void scrollToLatestMessage() {
     if (list == null || adapter == null || adapter.getCount() == 0) return;
+    followLatestMessages = true;
     list.post(() -> {
       if (list != null && adapter != null && adapter.getCount() > 0) {
         list.setSelection(adapter.getCount() - 1);
@@ -1869,11 +1882,7 @@ public final class ChatFragment extends Fragment {
     if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     adapter.notifyDataSetChanged();
-    if (follow && bottom && messages.length() > 0)
-      list.post(
-          () -> {
-            if (list != null) list.setSelection(adapter.getCount() - 1);
-          });
+    if (follow && bottom && messages.length() > 0) scrollToLatestMessage();
   }
 
   private void sendText() {

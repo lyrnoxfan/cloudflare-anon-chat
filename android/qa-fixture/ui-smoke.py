@@ -41,6 +41,18 @@ def locate(key, attr='text', timeout=25, contains=False, class_name=None):
         (OUT / 'failure-window.xml').write_bytes(ET.tostring(last, encoding='utf-8'))
     raise AssertionError(f'Visible node not found: {attr}={key}')
 
+def scroll_locate(key, attr='text', direction='up', attempts=8, **kwargs):
+    for _ in range(attempts):
+        try:
+            return locate(key, attr, timeout=1, **kwargs)
+        except AssertionError:
+            # Swipes stay inside the actual message list, not the composer/system bars.
+            if direction == 'up':
+                adb('shell','input','swipe','360','1050','360','400','400')
+            else:
+                adb('shell','input','swipe','360','400','360','1050','400')
+    return locate(key, attr, timeout=5, **kwargs)
+
 def tap_node(n, long=False):
     x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds')))
     x,y = (x1+x2)//2, (y1+y2)//2
@@ -90,6 +102,8 @@ try:
     locate('消息内容','content-desc')
     locate('2 人在线', contains=True)
     capture('02-chat-light')
+    # Start at the tail as a chat should; scroll back to inspect the older grouped avatar.
+    scroll_locate('小简', 'content-desc', direction='down')
     # A visible grouped-message avatar must keep its full 30dp height (CI density is 2).
     avatars = [n for n in tree().iter('node') if n.get('content-desc') == '小简']
     assert avatars, 'Peer avatar missing'
@@ -97,6 +111,7 @@ try:
         x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds')))
         assert y2-y1 >= 58, f'Avatar clipped: {n.get("bounds")}'
     passed('session opens real native chat and WebSocket presence; avatars are not clipped')
+    scroll_locate('周末去书店，顺便喝杯咖啡 ☕', direction='up')
     tap('消息内容','content-desc')
     marker = 'native-ui-' + str(int(time.time()))
     adb('shell','input','text',marker)
@@ -139,7 +154,7 @@ try:
     assert not any(n.get('text') == '通过房号加入' for n in tree().iter('node'))
     passed('Back closes the room drawer without leaving Activity')
     # Inspect actual media controls, not merely the source code/card presence.
-    tap('▶  轻触播放')
+    tap_node(scroll_locate('▶  轻触播放', direction='down'))
     # A short clip may finish before UIAutomator returns, so accept either painted status.
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
