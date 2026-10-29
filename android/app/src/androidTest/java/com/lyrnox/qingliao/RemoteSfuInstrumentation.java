@@ -179,7 +179,16 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       File release = new File(getTargetContext().getFilesDir(), "sfu-release");
       java.nio.file.Files.write(ready.toPath(), "media-ready".getBytes("UTF-8"));
       long releaseDeadline = System.currentTimeMillis() + 150000;
-      while (!release.exists() && System.currentTimeMillis() < releaseDeadline) Thread.sleep(500);
+      long nextMetricsSample = 0;
+      while (!release.exists() && System.currentTimeMillis() < releaseDeadline) {
+        // Keep sampling while peers remain live: the runner measures constrained-network
+        // progress from before/after snapshots taken during this barrier.
+        if (System.currentTimeMillis() >= nextMetricsSample) {
+          writeMediaMetrics(args.getString("role", "unknown"), stats(call), stats(call, "peer"));
+          nextMetricsSample = System.currentTimeMillis() + 1000;
+        }
+        Thread.sleep(500);
+      }
       if (!release.exists()) throw new AssertionError("Group did not confirm media before hangup barrier");
       if (owner || extra) { call.stop(); call=null; }
       else {

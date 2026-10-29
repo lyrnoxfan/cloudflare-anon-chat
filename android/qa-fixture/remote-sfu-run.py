@@ -70,9 +70,15 @@ try:
         deltas={role:{key:after[role].get(key,0)-before[role].get(key,0)
                       for key in ('audioPackets','videoBytes','publisherAudioBytes','publisherVideoBytes')}
                 for role in serials}
+        stale_metrics=[role for role in serials
+                       if after[role].get('sampledAtMs',0) <= before[role].get('sampledAtMs',0)]
+        if stale_metrics:
+            raise AssertionError('Live SFU metrics were not refreshed during constrained interval: '+', '.join(stale_metrics))
+        connected_ice={'CONNECTED','COMPLETED'}
         checks={role:{
-            'receiver_connected':after[role].get('connectionState')=='CONNECTED' and after[role].get('iceState')=='CONNECTED',
-            'publisher_connected':after[role].get('publisherConnectionState')=='CONNECTED' and after[role].get('publisherIceState')=='CONNECTED',
+            'metrics_refreshed':after[role].get('sampledAtMs',0)>before[role].get('sampledAtMs',0),
+            'receiver_connected':after[role].get('connectionState')=='CONNECTED' and after[role].get('iceState') in connected_ice,
+            'publisher_connected':after[role].get('publisherConnectionState')=='CONNECTED' and after[role].get('publisherIceState') in connected_ice,
             'video_progressed':deltas[role]['videoBytes']>0,
             # A silent emulator microphone can produce no new RTP audio to count. Only
             # require a receiver delta when at least one remote publisher actually sent audio.
