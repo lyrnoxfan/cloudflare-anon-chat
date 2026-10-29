@@ -41,9 +41,11 @@ try:
         (out/'peer-activity-connected.png').write_bytes(screenshot)
     # Peer exercises Home/cleanup before owner hangs up; otherwise owner termination
     # could hide a broken peer lifecycle. Release is test-local, never a cloud control.
-    subprocess.run(['adb','-s','emulator-5556','shell','run-as','com.lyrnox.qingliao.qa','sh','-c','mkdir -p files && touch files/sfu-release'],check=True,timeout=10)
+    subprocess.run(['adb','-s','emulator-5556','shell','run-as','com.lyrnox.qingliao.qa','mkdir','-p','files'],check=True,timeout=10)
+    subprocess.run(['adb','-s','emulator-5556','shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
     peer.wait(timeout=45)
-    subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','sh','-c','mkdir -p files && touch files/sfu-release'],check=True,timeout=10)
+    subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','mkdir','-p','files'],check=True,timeout=10)
+    subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','touch','files/sfu-release'],check=True,timeout=10)
     for p,f in processes:
         p.wait(timeout=30); f.flush()
     for role in ('owner','peer'):
