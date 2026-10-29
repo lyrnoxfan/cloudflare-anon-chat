@@ -44,7 +44,7 @@ adb reverse tcp:8000 tcp:8000
 adb install -r android/app/build/outputs/apk/qa/app-qa.apk
 adb install -r android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk
 # Offline shipped JNI tests run on the installed app's real native library.
-adb shell am instrument -w -e network false com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
+adb shell am instrument -w -r -e network false com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
   | tee "$QA_EVIDENCE/jni.txt"
 grep -q '50 Android JNI assertions passed' "$QA_EVIDENCE/jni.txt"
 grep -q 'INSTRUMENTATION_CODE: -1' "$QA_EVIDENCE/jni.txt"
@@ -71,7 +71,7 @@ for i in $(seq 1 60); do
   sleep 1
 done
 [[ "$up" == true ]]
-adb shell am instrument -w -e network true com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
+adb shell am instrument -w -r -e network true com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
   | tee "$QA_EVIDENCE/native-service.txt"
 grep -q 'local Worker/D1/R2/DO assertions passed' "$QA_EVIDENCE/native-service.txt"
 grep -q 'INSTRUMENTATION_CODE: -1' "$QA_EVIDENCE/native-service.txt"
