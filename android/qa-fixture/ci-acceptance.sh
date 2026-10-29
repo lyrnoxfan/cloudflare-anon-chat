@@ -60,7 +60,7 @@ for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8000/health >/dev/null && br
 python3 android/qa-fixture/ui-smoke.py | tee "$QA_EVIDENCE/ui.txt"
 adb shell am instrument -w -r -e mediaLifecycle true com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
   | tee "$QA_EVIDENCE/media-lifecycle.txt"
-grep -q '9 Android media/file/focus assertions passed' "$QA_EVIDENCE/media-lifecycle.txt"
+grep -q '11 Android media/file/focus assertions passed' "$QA_EVIDENCE/media-lifecycle.txt"
 grep -q 'INSTRUMENTATION_CODE: -1' "$QA_EVIDENCE/media-lifecycle.txt"
 adb shell am force-stop com.lyrnox.qingliao.qa
 kill "$fixture_pid"; wait "$fixture_pid" || true; fixture_pid=''
