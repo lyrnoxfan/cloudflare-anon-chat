@@ -52,7 +52,7 @@ adb install -r android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.a
 # Offline shipped JNI tests run on the installed app's real native library.
 adb shell am instrument -w -r -e network false com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.NativeInstrumentation \
   | tee "$QA_EVIDENCE/jni.txt"
-grep -q '57 Android JNI assertions passed' "$QA_EVIDENCE/jni.txt"
+grep -q '61 Android JNI assertions passed' "$QA_EVIDENCE/jni.txt"
 grep -q 'INSTRUMENTATION_CODE: -1' "$QA_EVIDENCE/jni.txt"
 node android/qa-fixture/mock-server.mjs > "$QA_EVIDENCE/fixture.log" 2>&1 &
 fixture_pid=$!

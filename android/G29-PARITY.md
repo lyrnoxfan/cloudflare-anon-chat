@@ -117,3 +117,9 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 - Android 通话面板增加独立的 48dp「音频输出」图标控件；可在通话中按系统实际可用设备选择听筒、扬声器、有线/USB/蓝牙耳机或音箱。Android 12+ 通过通信设备 API 读取/切换端点；旧版本至少提供听筒/扬声器选择，耳机继续由系统自动管理。未知设备使用可理解的兜底名称。
 - Android 12+ 的蓝牙连接权限仅在用户主动选择蓝牙设备时请求；拒绝权限不会阻断其他输出方式。通话结束时恢复先前仍可用的系统通信端点，否则清除强制路由回到系统默认；旧版本恢复此前扬声器状态。
 - 新增一条 JNI/Activity 仪器断言覆盖未知设备名称；本次定向 Javac 构建已通过。此实现填补了可在源码层解决的“通话音频输出不可选择”差异，但不代表设备上蓝牙切换、耳机插拔、系统来电抢占等行为已经验证；仍须等冻结提交的集中接受测试，并需要真实硬件才能验收实际音频路径。
+
+
+## Final-acceptance harness correction (2026-10-30)
+
+- On exact app commit `aea4b15a26b8e4bba8bfe2cc17131e6b9e962de3`, the centralized workflow run `40932616832` built/linted the app and passed C++ ASan/UBSan. Its JNI output reported 61 assertions, then the acceptance shell stopped because it still expected 57; this is a stale harness count after four audio-routing assertions were added, not a demonstrated product failure. Activity/service stages did not run in that attempt.
+- Updated the acceptance count to 61 based on that run's `jni.txt`. This changes only the harness; it does not add product behavior. A single full consolidated run on the final frozen SHA remains necessary, and any additional platform/device or website behavior outside that CI remains explicitly unverified.
