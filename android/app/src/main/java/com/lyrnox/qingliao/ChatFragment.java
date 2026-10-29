@@ -50,9 +50,16 @@ public final class ChatFragment extends Fragment {
       roomName = "公共大厅",
       nickname = "",
       next = null,
-      status = "正在连接…",
-      pendingId = "",
-      pendingText = "";
+      status = "正在连接…";
+  private static final class PendingText {
+    final String id, text, room;
+    boolean sending;
+    String error = "";
+    PendingText(String id, String text, String room) {
+      this.id = id; this.text = text; this.room = room;
+    }
+  }
+  private final LinkedHashMap<String, PendingText> pendingTexts = new LinkedHashMap<>();
   private String pendingLink = null;
   private JSONObject session;
   private JSONArray messages = new JSONArray(),
@@ -73,7 +80,7 @@ public final class ChatFragment extends Fragment {
   private ListView list;
   private LinearLayout emptyState;
   private TextView heading, subtitle, identityBadge, onlineDot, statusView, recordView, callLabel;
-  private LinearLayout uploadPanel;
+  private LinearLayout pendingTextPanel, uploadPanel;
   private TextView uploadLabel;
   private ProgressBar uploadProgress;
   private Button uploadRetry, uploadCancel;
@@ -558,6 +565,12 @@ public final class ChatFragment extends Fragment {
     root.addView(sessionOverlay, new FrameLayout.LayoutParams(-1, -1));
     buildRoomDrawer();
     content.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
+    pendingTextPanel = vertical();
+    pendingTextPanel.setVisibility(View.GONE);
+    LinearLayout.LayoutParams pendingTextParams = new LinearLayout.LayoutParams(-1, -2);
+    pendingTextParams.setMargins(dp(12), dp(2), dp(12), dp(2));
+    content.addView(pendingTextPanel, pendingTextParams);
+    renderPendingTexts();
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
     emojiScroll = new ScrollView(getActivity());
@@ -849,6 +862,7 @@ public final class ChatFragment extends Fragment {
     replyName = null;
     replyText = null;
     chatArea = null;
+    pendingTextPanel = null;
     emptyState = null;
     sessionGate = null;
     sessionOverlay = null;
@@ -879,6 +893,10 @@ public final class ChatFragment extends Fragment {
   }
 
   private void task(Job job, Result result) {
+    task(job, result, null);
+  }
+
+  private void task(Job job, Result result, Failure failure) {
     if (dead) return;
     final int startedGeneration = generation;
     io.execute(
@@ -897,7 +915,11 @@ public final class ChatFragment extends Fragment {
           } catch (Exception e) {
             main.post(
                 () -> {
-                  if (!dead && startedGeneration == generation) error(e);
+                  if (!dead) {
+                    if (startedGeneration == generation) {
+                      if (failure == null) error(e); else failure.failed(e);
+                    } else if (failure != null) failure.failed(e);
+                  }
                 });
           }
         });
@@ -1962,8 +1984,8 @@ public final class ChatFragment extends Fragment {
       if (unread != null) unread.setVisibility(View.GONE);
       selectedCallTargetId = "";
       selectedCallTargetName = "";
-      pendingId = "";
-      pendingText = "";
+      pendingTexts.clear();
+      renderPendingTexts();
       if (input != null) input.setText("");
       clearReplyDraft();
       render(true);
@@ -2211,34 +2233,68 @@ public final class ChatFragment extends Fragment {
       toast("引用和消息合计不能超过 4000 字，请缩短后发送");
       return;
     }
-    try {
-      if (!outgoing.equals(pendingText) || pendingId.isEmpty()) {
-        pendingText = outgoing;
-        pendingId = UUID.randomUUID().toString();
-      }
-      String path = endpoint("send");
-      int g = generation;
-      String sentRoom = room;
-      String sentClientId = pendingId;
-      busy = true;
-      send.setEnabled(false);
-      setStatus("正在发送…");
-      task(
-          () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path, sentRoom, outgoing, sentClientId),
-          value -> {
-            busy = false;
-            if (send != null) send.setEnabled(true);
-            if (g != generation) return;
-            if (input != null && input.getText().toString().equals(raw)) input.setText("");
-            if (replyPrefix.equals(sentReplyPrefix)) clearReplyDraft();
-            pendingId = "";
-            pendingText = "";
-            setStatus("已发送");
-            refreshSnapshot(true);
-            scrollToLatestMessage();
-          });
-    } catch (Exception e) {
-      error(e);
+    PendingText pending = new PendingText(UUID.randomUUID().toString(), outgoing, room);
+    pendingTexts.put(pending.id, pending);
+    if (input.getText().toString().equals(raw)) input.setText("");
+    if (replyPrefix.equals(sentReplyPrefix)) clearReplyDraft();
+    renderPendingTexts();
+    scrollToLatestMessage();
+    sendPendingText(pending);
+  }
+
+  private void sendPendingText(PendingText pending) {
+    if (pending == null || pending.sending || busy || session == null) return;
+    String path = "/api/r/" + pending.room + "/send";
+    int g = generation;
+    pending.sending = true;
+    pending.error = "";
+    busy = true;
+    if (send != null) send.setEnabled(false);
+    renderPendingTexts();
+    setStatus("正在发送…");
+    task(
+        () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path,
+            pending.room, pending.text, pending.id),
+        value -> {
+          pending.sending = false;
+          pendingTexts.remove(pending.id);
+          busy = false;
+          if (send != null) send.setEnabled(true);
+          renderPendingTexts();
+          if (g != generation || !pending.room.equals(room)) return;
+          setStatus("已发送");
+          refreshSnapshot(true);
+          scrollToLatestMessage();
+        },
+        e -> {
+          pending.sending = false;
+          pending.error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+          busy = false;
+          if (send != null) send.setEnabled(true);
+          renderPendingTexts();
+          error(e);
+        });
+  }
+
+  private void renderPendingTexts() {
+    if (pendingTextPanel == null) return;
+    pendingTextPanel.removeAllViews();
+    pendingTextPanel.setVisibility(pendingTexts.isEmpty() ? View.GONE : View.VISIBLE);
+    for (PendingText pending : pendingTexts.values()) {
+      LinearLayout row = new LinearLayout(getActivity());
+      row.setGravity(Gravity.CENTER_VERTICAL);
+      row.setPadding(dp(10), dp(5), dp(5), dp(5));
+      row.setBackground(shape(pale, 14));
+      String deliveryStatus = pending.sending ? " · 发送中" : " · 发送失败：" + pending.error;
+      TextView preview = text(pending.text + deliveryStatus, 12, ink);
+      preview.setMaxLines(2);
+      preview.setEllipsize(android.text.TextUtils.TruncateAt.END);
+      preview.setContentDescription("待发送消息：" + pending.text + (pending.sending ? "，发送中" : "，发送失败：" + pending.error));
+      row.addView(preview, new LinearLayout.LayoutParams(0, -2, 1));
+      Button retry = button(pending.sending ? "发送中…" : "重试", () -> sendPendingText(pending));
+      retry.setEnabled(!pending.sending && !busy && session != null);
+      row.addView(retry);
+      pendingTextPanel.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
   }
 

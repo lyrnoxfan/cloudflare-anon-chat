@@ -14,6 +14,7 @@ const port = 8000;
 const sessions = new Map();
 const clients = new Set();
 let activeCall = null;
+const failedTextClientIds = new Set();
 const now = Date.now();
 const messages = [
   {id:'qa-msg-001',created:now-86400000,nickname:'小简',mine:false,kind:'text',text:'今天路过一家很棒的书店。'},
@@ -83,7 +84,7 @@ const server=http.createServer((req,res)=>{
   if(path==='/api/r/lobby/history'&&req.method==='GET'){const s=sessionFor(req);return s?json(res,200,{messages:fixtureMessages(s),next:null}):json(res,401,{error:'会话已过期'})}
   if(path==='/api/r/lobby/call-state'&&req.method==='GET') return sessionFor(req)?json(res,200,{call:activeCall}):json(res,401,{error:'会话已过期'});
   if(path==='/api/r/lobby/send'&&req.method==='POST'){
-    let body='';req.on('data',c=>body+=c);req.on('end',()=>{try{const b=JSON.parse(body),s=sessionFor(req);if(!s)return json(res,401,{error:'会话已过期'});const text=String(b.text||'').trim(),clientId=String(b.clientId||'');if(!text||text.length>4000||!clientId||clientId.length>80)return json(res,400,{error:'消息内容或标识无效'});let m=messages.find(x=>x.mine&&x.client_id===clientId);if(!m){m={id:crypto.randomUUID(),created:Date.now(),nickname:s.nickname,mine:true,author:s.id,client_id:clientId,kind:'text',text};messages.push(m);broadcast({type:'message',message:m})}json(res,200,{message:m});}catch{return json(res,400,{error:'JSON 格式不正确'})}});return;
+    let body='';req.on('data',c=>body+=c);req.on('end',()=>{try{const b=JSON.parse(body),s=sessionFor(req);if(!s)return json(res,401,{error:'会话已过期'});const text=String(b.text||'').trim(),clientId=String(b.clientId||'');if(!text||text.length>4000||!clientId||clientId.length>80)return json(res,400,{error:'消息内容或标识无效'});if(text.startsWith('retry-ui-')&&!failedTextClientIds.has(clientId)){failedTextClientIds.add(clientId);return json(res,503,{error:'QA 暂时发送失败，请重试'})}let m=messages.find(x=>x.mine&&x.client_id===clientId);if(!m){m={id:crypto.randomUUID(),created:Date.now(),nickname:s.nickname,mine:true,author:s.id,client_id:clientId,kind:'text',text};messages.push(m);broadcast({type:'message',message:m})}json(res,200,{message:m});}catch{return json(res,400,{error:'JSON 格式不正确'})}});return;
   }
   const deleted=path.match(/^\/api\/r\/lobby\/delete\/([A-Za-z0-9-]+)$/);
   if(deleted&&req.method==='POST'){

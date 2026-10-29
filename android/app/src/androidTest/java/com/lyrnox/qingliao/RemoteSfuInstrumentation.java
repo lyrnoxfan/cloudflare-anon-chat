@@ -283,8 +283,22 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       finish(-1,result);
     } catch(Throwable e) {
       diagnosticError = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+      JSONObject receiverStats = new JSONObject();
+      JSONObject publisherStats = new JSONObject();
+      String statsError = "";
+      if (call != null) {
+        try { receiverStats = stats(call); }
+        catch (Throwable statsFailure) { statsError = "receiver=" + statsFailure.getClass().getSimpleName(); }
+        try { publisherStats = stats(call, "peer"); }
+        catch (Throwable statsFailure) {
+          statsError += (statsError.isEmpty() ? "" : "; ") + "publisher=" + statsFailure.getClass().getSimpleName();
+        }
+        try { writeMediaMetrics(args == null ? "unknown" : args.getString("role", "unknown"), receiverStats, publisherStats); }
+        catch (Exception ignored) {}
+      }
       try { writeDiagnostic(args == null ? "unknown" : args.getString("role", "unknown"),
-          "failed:" + diagnosticStage, diagnosticStatus, remoteTrackCount(call), diagnosticError); }
+          "failed:" + diagnosticStage, diagnosticStatus, remoteTrackCount(call), diagnosticError,
+          receiverStats, publisherStats, statsError); }
       catch (Exception ignored) {}
       result.putString("stream","FAILED "+e.getClass().getSimpleName()+": "+e.getMessage()+"\n"); finish(0,result);
     } finally {
@@ -302,10 +316,19 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
 
   private void writeDiagnostic(String role, String stage, String currentStatus,
       int renderedRemoteTracks, String error) throws Exception {
+    writeDiagnostic(role, stage, currentStatus, renderedRemoteTracks, error,
+        new JSONObject(), new JSONObject(), "");
+  }
+
+  private void writeDiagnostic(String role, String stage, String currentStatus,
+      int renderedRemoteTracks, String error, JSONObject receiverStats,
+      JSONObject publisherStats, String statsError) throws Exception {
     JSONObject evidence = new JSONObject().put("role", role)
         .put("stage", stage).put("status", currentStatus)
         .put("renderedRemoteTracks", renderedRemoteTracks)
         .put("decodedFrames", decodedFrames.get()).put("perTrackFrames", frameCounts())
+        .put("receiverStats", receiverStats).put("publisherStats", publisherStats)
+        .put("statsError", statsError)
         .put("error", error).put("sampledAtMs", System.currentTimeMillis());
     java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-diagnostics.json").toPath(),
         evidence.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -372,6 +395,10 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         .put("publisherIceState", publisher.optString("iceState", "unknown"))
         .put("publisherAudioBytes", publisher.optLong("sentAudioBytes"))
         .put("publisherVideoBytes", publisher.optLong("sentVideoBytes"))
+        .put("receiverCandidatePairs", stats.optJSONArray("candidatePairs") == null
+            ? new JSONArray() : stats.optJSONArray("candidatePairs"))
+        .put("publisherCandidatePairs", publisher.optJSONArray("candidatePairs") == null
+            ? new JSONArray() : publisher.optJSONArray("candidatePairs"))
         .put("decodedFrames", decodedFrames.get())
         .put("sampledAtMs", System.currentTimeMillis());
     java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-metrics.json").toPath(),

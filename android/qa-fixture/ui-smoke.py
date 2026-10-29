@@ -151,6 +151,31 @@ try:
     assert not any(n.get('content-desc') == '发送消息' for n in tree().iter('node'))
     passed('typed text is sent and rendered in Activity')
     capture('03-sent-message')
+    # The local fixture deliberately rejects the first POST for this prefix. The
+    # Activity must preserve the exact text/client id, clear the composer, expose
+    # its visible retry control, and remove the pending card only after success.
+    retry_marker = 'retry-ui-' + str(int(time.time()))
+    composer = locate('消息内容', 'content-desc')
+    tap_node(composer)
+    adb('shell','input','text',retry_marker)
+    tap('发送消息','content-desc')
+    failed = locate('待发送消息：' + retry_marker, 'content-desc', timeout=20, contains=True)
+    assert '发送失败' in failed.get('content-desc', ''), 'Failed send status is not exposed'
+    assert 'QA 暂时发送失败，请重试' in failed.get('content-desc', ''), 'Failure reason is not preserved'
+    composer = locate('消息内容', 'content-desc')
+    assert composer.get('text', '') in ('', '说点什么…'), 'Failed message remains in composer instead of pending card'
+    tap('重试')
+    deadline = time.monotonic() + 20
+    delivered = False
+    while time.monotonic() < deadline:
+        snapshot = tree()
+        nodes = list(snapshot.iter('node'))
+        pending_present = any('待发送消息：' + retry_marker in n.get('content-desc', '') for n in nodes)
+        delivered = any(retry_marker in n.get('content-desc', '') and '待发送消息：' not in n.get('content-desc', '') for n in nodes)
+        if delivered and not pending_present: break
+        time.sleep(0.5)
+    assert delivered and not pending_present, 'Retry did not clear pending card after server accepted the same message'
+    passed('failed message stays visible and retries successfully without restoring composer text')
     tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
     # Capture the menu before searching/tapping so a missing popup is diagnosable.
     capture('03-message-actions')
