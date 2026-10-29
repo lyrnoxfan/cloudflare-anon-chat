@@ -17,9 +17,29 @@ def read_metrics(serial):
         time.sleep(0.5)
     raise RuntimeError('Could not read live SFU media metrics on '+serial)
 def begin(serial,role,extra=()):
-    f=open(out/f'{role}.txt','w')
+    f=open(out/f'{role}.txt','w',buffering=1)
     p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget','blue-room-test','-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
+    f.flush()
     processes.append((p,f)); return p
+def inspect_role(serial, role):
+    evidence={'role':role,'serial':serial,'process':None,'markers':{}}
+    for (p,_),label in zip(processes,('owner','extra','peer')):
+        if label==role: evidence['process']={'running':p.poll() is None,'exit_code':p.poll()}
+    for marker in ('sfu-publisher-ready','sfu-pair-ready','sfu-ready'):
+        r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat','files/'+marker],capture_output=True,timeout=10)
+        evidence['markers'][marker]=r.stdout.decode(errors='replace').strip() if r.returncode==0 else None
+    for name in ('sfu-diagnostics.json','sfu-metrics.json'):
+        r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat','files/'+name],capture_output=True,timeout=10)
+        if r.returncode==0:
+            raw=r.stdout.decode(errors='replace')
+            try: evidence[name]=json.loads(raw)
+            except ValueError: evidence[name]={'unparsed':raw[:2000]}
+        else: evidence[name]=None
+    return evidence
+def timeout_error(message):
+    snapshot={role:inspect_role(serial,role) for role,serial in serials.items()}
+    (out/'failure-diagnostics.json').write_text(json.dumps(snapshot,indent=2))
+    raise RuntimeError(message+'; diagnostics='+json.dumps(snapshot,sort_keys=True))
 def wait_marker(serial, name, role, timeout):
     deadline=time.monotonic()+timeout
     path=name
@@ -27,9 +47,9 @@ def wait_marker(serial, name, role, timeout):
         r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat',path],capture_output=True,timeout=10)
         if r.returncode==0 and r.stdout.strip(): return
         failed=[label for (p,_),label in zip(processes,('owner','extra','peer')) if p.poll() is not None]
-        if failed: raise RuntimeError('SFU participant exited before '+role+' marker; completed='+str(failed)+'; see participant logs')
+        if failed: timeout_error('SFU participant exited before '+role+' marker; completed='+str(failed))
         time.sleep(1)
-    raise RuntimeError('Timed out waiting for '+role+' marker '+name)
+    timeout_error('Timed out waiting for '+role+' marker '+name)
 try:
     owner=begin('emulator-5554','owner')
     deadline=time.monotonic()+100

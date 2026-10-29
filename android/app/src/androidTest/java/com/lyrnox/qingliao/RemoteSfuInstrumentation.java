@@ -29,6 +29,9 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     boolean extra = args != null && "extra".equals(args.getString("role"));
     android.app.Activity activity = null;
     ChatFragment fragment = null;
+    String diagnosticStage = "initializing";
+    String diagnosticStatus = "initializing";
+    String diagnosticError = "";
     try (NativeCore core = new NativeCore(); ChatNet net = new ChatNet(getTargetContext(), !owner)) {
       if (!BuildConfig.APPLICATION_ID.endsWith(".qa") || !"https://chat.lyrnox.com".equals(ChatNet.BASE)
           || args == null || !"blue-room-test".equals(args.getString("approvedTarget")))
@@ -75,7 +78,10 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       };
       if (owner || extra) {
         call = new NativeCallSession(getTargetContext(),core,net,room,session.getString("id"),listener);
+        diagnosticStage = "native-publisher-start";
+        writeDiagnostic(args.getString("role", "unknown"), diagnosticStage, status.get(), 0, "");
         call.start("video",callId,"");
+        diagnosticStage = "native-publisher-ready";
       } else {
         // The test prepares a cookie and already-authorized room membership. The actual
         // foreground Activity renders the invitation; its real View click creates the session.
@@ -102,11 +108,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         while (field(ui, "nativeCall") == null && System.currentTimeMillis() < until) Thread.sleep(250);
         call = (NativeCallSession) field(ui, "nativeCall");
         if (call == null) throw new AssertionError("Activity join View did not create native session");
+        diagnosticStage = "activity-publisher-start";
+        writeDiagnostic(args.getString("role", "unknown"), diagnosticStage, activityStatus(ui), 0, "");
         // nativeCall is assigned before its asynchronous callIo task starts. Do not tell
         // the three-emulator runner that this publisher is ready until call-start, join,
         // local publishing, ICE connection and call-ready have actually completed.
         awaitActivityPublisherReady(net, room, session.getString("id"), callId, ui, call, 120000);
+        diagnosticStage = "activity-publisher-ready";
       }
+      diagnosticStatus = status.get();
       // The runner's join barrier represents a server-confirmed ready publisher, not merely
       // an Activity object allocated before its asynchronous startup has begun.
       java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-publisher-ready").toPath(),
@@ -180,11 +190,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
             java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-pair-ready").toPath(),
                 "pair-media-ready".getBytes("UTF-8"));
             pairReadyWritten = true;
+            diagnosticStage = "pair-media-ready";
           }
         }
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");
+        diagnosticStage = "receiving-media";
+        diagnosticStatus = status.get();
         writeMediaMetrics(args.getString("role", "unknown"), stats, stats(call, "peer"));
+        writeDiagnostic(args.getString("role", "unknown"), diagnosticStage, diagnosticStatus, renderedRemoteCount, "");
         if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 && renderedRemoteCount >= 2) break;
         Thread.sleep(1500);
       }
@@ -255,6 +269,10 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       result.putString("stream",result.getString("stream")+"PASS native hangup leaves server participant\n");
       finish(-1,result);
     } catch(Throwable e) {
+      diagnosticError = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+      try { writeDiagnostic(args == null ? "unknown" : args.getString("role", "unknown"),
+          "failed:" + diagnosticStage, diagnosticStatus, remoteTrackCount(call), diagnosticError); }
+      catch (Exception ignored) {}
       result.putString("stream","FAILED "+e.getClass().getSimpleName()+": "+e.getMessage()+"\n"); finish(0,result);
     } finally {
       for (java.util.Map.Entry<VideoTrack, VideoSink> entry : sinksByTrack.entrySet()) {
@@ -265,6 +283,21 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       if (call != null) call.stop();
     }
   }
+  private int remoteTrackCount(NativeCallSession call) {
+    return call == null ? 0 : sinksByTrack.size();
+  }
+
+  private void writeDiagnostic(String role, String stage, String currentStatus,
+      int renderedRemoteTracks, String error) throws Exception {
+    JSONObject evidence = new JSONObject().put("role", role)
+        .put("stage", stage).put("status", currentStatus)
+        .put("renderedRemoteTracks", renderedRemoteTracks)
+        .put("decodedFrames", decodedFrames.get()).put("perTrackFrames", frameCounts())
+        .put("error", error).put("sampledAtMs", System.currentTimeMillis());
+    java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-diagnostics.json").toPath(),
+        evidence.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  }
+
   private void awaitActivityPublisherReady(ChatNet net, String room, String selfId, String callId,
       ChatFragment ui, NativeCallSession call, long timeoutMs) throws Exception {
     long until = System.currentTimeMillis() + timeoutMs;
