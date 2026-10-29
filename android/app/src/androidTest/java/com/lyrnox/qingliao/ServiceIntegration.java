@@ -76,7 +76,9 @@ final class ServiceIntegration {
         checks++;
         String cid = UUID.randomUUID().toString();
         JSONObject payload = core.run("send", "text", body, "clientId", cid);
-        JSONObject message = a.api(path + "send", payload).getJSONObject("message");
+        core.run("reset", "room", rid);
+        JSONObject message = MessageProtocol.send(core, (p, request) -> a.messagePost(p, request),
+            path + "send", rid, body, cid).getJSONObject("message");
         checks++;
         JSONObject duplicate = a.api(path + "send", payload).getJSONObject("message");
         if (!duplicate.getString("id").equals(message.getString("id")))

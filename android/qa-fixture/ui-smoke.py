@@ -22,12 +22,14 @@ def tree():
     adb('shell', 'uiautomator', 'dump', '/sdcard/qa-window.xml')
     return ET.fromstring(adb('shell', 'cat', '/sdcard/qa-window.xml'))
 
-def locate(key, attr='text', timeout=25, contains=False):
+def locate(key, attr='text', timeout=25, contains=False, class_name=None):
     deadline = time.monotonic() + timeout
     last = None
     while time.monotonic() < deadline:
         last = tree()
         for n in last.iter('node'):
+            if class_name and n.get('class') != class_name:
+                continue
             value = n.get(attr, '')
             if (key in value if contains else key == value):
                 bounds = list(map(int, re.findall(r'\d+', n.get('bounds', ''))))
@@ -76,16 +78,18 @@ try:
     adb('shell','input','text',marker)
     tap('发送消息','content-desc')
     adb('shell','input','keyevent','4')
-    locate(marker)
+    # A matching EditText is an unsent draft, not a delivered message.
+    locate(marker, class_name='android.widget.TextView')
+    assert locate('消息内容', 'content-desc').get('text', '') == ''
     passed('typed text is sent and rendered in Activity')
     capture('03-sent-message')
-    tap_node(locate(marker), long=True)
+    tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
     tap('回复')
     locate('取消回复','content-desc')
     passed('message long press opens reply draft')
     tap('取消回复','content-desc')
     adb('shell','input','keyevent','4')
-    tap_node(locate(marker), long=True)
+    tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
     tap('删除')
     locate('删除这条消息？其他成员也会看到删除状态。')
     tap('删除')
