@@ -77,3 +77,29 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 - 工件中 owner candidate-pair 为空，provider 原始响应/`SFU_PROVIDER_FAILURE` 详情也没有保存。此前只读日志里看到的 HTTP 502 属于后续订阅重置请求；现有材料不能证明失败发生于哪一个 provider 请求，也不能据它认定首个订阅调用的根因。`src/sfu.ts` 可在 server-side log 记录脱敏的 path/status/body/track error，但本轮没有可确认隔离环境下的对应原始事件，故根因仍未定位。需要在隔离 Worker 上保留该次 `call-subscribe`/重协商原始脱敏诊断，再复现并对应请求阶段。
 - 该仓库既有 SFU workflow 与 instrumentation 固定指向 `https://chat.lyrnox.com`、`blue-room-test`；只读 Cloudflare 页面将其标为 production。为避免再次向生产房间发测试流量，SFU workflow 现只从 GitHub `cloudflare-sfu-isolated` 环境读取 `QA_SFU_BASE_URL` 和 `QA_SFU_TARGET`，在测试前拒绝已知生产域名，并把配置传入 QA build；缺少这些环境值即停止。现在没有已确认的隔离 endpoint/target，因此本轮没有运行 SFU 测试。
 - 本轮工作区未对 SFU 逻辑臆修；完整网页流程/全页面视觉、真机摄像头麦克风与音频路由、真实断网/丢包恢复仍未验收。最终可交付版本必须先有同一固定 SHA 的 Android 集中通过结果及隔离 SFU 三方通过结果，再核对该 SHA 的 APK、源码、报告、证据和校验和。
+
+## 完整界面与交互源码审计（2026-10-29）
+
+网页入口是单页应用；以下按实际 DOM/状态面而不是不存在的独立 URL 页面逐项对照 `public/index.html`、`public/app.js`、`public/call.js`、`public/style.css` 与原生 View 实现。此表区分实现映射、可用测试证据和未覆盖的设备/生产路径。
+
+| 网页页面/状态与实际交互 | Android 对应实现 | 证据边界/视觉差异 |
+|---|---|---|
+| 主壳层：`#sidebar`、`#menuToggle`、`#drawerBackdrop`、`#lobby`、`#newRoom`、昵称入口 | `ChatFragment.buildRoomDrawer`、`refreshRoomDrawer`、`nicknameDialog`、系统返回处理 | 原生抽屉与系统对话框；不复刻网页侧栏的桌面/手机断点布局。模拟器主页面不是所有屏幕宽度截图对照 |
+| 会话门：`#entry/#entryForm/#nickname`，新会话建立即进入房间 | `showSessionGate`、`nicknameDialog`、`SessionProtocol.create`、`applyAcceptedSession` | 隔离 QA Activity/服务流程有测试；真实用户账号、浏览器 cookie、设备键盘和系统权限不在 CI 覆盖范围 |
+| 房间顶栏：`#roomName/#count/#roomCode/#connection/#audioCall/#videoCall/#moreToggle` | `heading/subtitle/statusView` 与工具栏回调、`showMembers`、`startCallFromToolbar` | 状态文本与动作有 Activity 流程；信息密度、原生状态/导航栏与网页 CSS 不同 |
+| 公共大厅和房间导航：`#lobby`、`#newRoom`、URL `?room=`、分享链接 | `switchRoom`、`enter`、`handleLink`、`shareRoom`、原生房间抽屉 | API/隔离服务测试覆盖大厅和私人房加入；公网默认页只读查看，没有用线上身份提交昵称或创建房间 |
+| 建房/加入对话框：`#private/#privateForm/#roomInput/#password` 与 `#joinRoomDialog/#joinRoomForm` | `createDialog`、`joinDialog`，校验房号、API 请求、房间切换 | 流程在隔离服务有覆盖；网页 `<dialog>` 的焦点陷阱/Escape、浏览器 autofill 与 Android `AlertDialog` 不同 |
+| 成员列表/通话对象：`#members/#count`，点选成员切换一对一/多人 | `showMembers`、`selectedCallTargetId`，在线成员更新后清理离线选择 | 同房间服务及通话测试有覆盖；不同屏幕、TalkBack 焦点次序未逐项验收 |
+| 消息区：`#messages/#messageList/#empty/#older/#unread`，历史分页、滚动补载、跳到底部、新消息提示 | `list/emptyState`、`history`、`resync`、`scrollToLatestMessage`、`unread` | 同提交 Android 接受测试/本地服务验证一部分；完整网页历史长度与实网离线历史恢复未逐项复测 |
+| 消息卡：文本/删除态、日期/消息分组、图片/音频/视频/文件；`#messageMenu` 复制/回复/删除 | `render`、`messageMenu`、`handleMessageAction`、`MessageAdapter`、媒体卡与查看器 | 同房间隔离消息和保存/删除流程有测试证据；逐项字体、长文本换行、媒体裁切和无障碍树跨平台未作视觉等同保证 |
+| 文本编辑器：`#composer/#messageText/#send/#replyDraft/#cancelReply`，Enter 发送、Shift+Enter 换行、长度/引用检查 | 原生输入框、编辑动作、`sendText`、独立 pending 文本、`clearReplyDraft` | 同提交 UI 验收包含失败后保留原内容与同 ID 重试；IME 与硬件键盘行为仍需真机覆盖 |
+| 图片/视频/附件上传：`#file/#uploadStatus`，分类大小、进度、取消、失败重试、确认 | Android 文件选择器、`UploadJob`、进度/取消/重试/确认、`MediaFiles` | 隔离 API/Activity 测试覆盖部分失败重试与幂等；真实 SAF provider、权限撤回、蜂窝网络中断未验 |
+| 表情：`#emojiToggle/#emojiPicker` | 内置表情网格与 `emojiScroll`；按可用高度限高、网格滚动 | 本地 Activity 检查边界和滚动；小屏键盘同时弹起、厂商输入法遮挡未验 |
+| 录音：`#record/#recorder/#stopRecord/#sendRecord/#cancelRecord/#recordPreview`，网页最长 2 小时、音频 10 MiB 上限 | `MediaRecorder` 原生录音、预听/取消/发送；此次将先前更严的 2 分钟/9 MiB 上限改为与网页一致的 2 小时/10 MiB | 新增 Android 检查只核对配置常量，不启动实体麦克风；编码器截止边界、实际录音时间/大小和真机权限仍待设备测试 |
+| 图片/视频 lightbox：`#lightbox/#fullImage/#fullVideo/#closeLightbox` | `showImageLightbox`、`showVideoViewer`、内联播放/停止/重试 | 媒体 API/文件流程有隔离测试；设备 codec、旋转、播放焦点与网页内联播放器仍需真机覆盖 |
+| 通话面板：`#callPanel/#acceptCall/#declineCall/#mute/#camera/#flip/#hangup/#videos` | `renderCallPanel`、`requestNativeCall`、`NativeCallSession`、参与者视频网格 | 三方模拟器结果仅能证明对应提交/运行；不证明物理摄像头、麦克风、听筒、扬声器或蓝牙路由 |
+| 在线/生命周期：WebSocket `open/message/close`、`online`、`pagehide`、呼叫状态轮询与恢复 | `connect/lost/reconnect`、网络状态门控、Fragment 生命周期与媒体清理 | 网络恢复门控状态机可被自动测试；真实断网/切 Wi-Fi/蜂窝、厂商后台冻结及恢复时间还未端到端验收 |
+
+实现性差异已修复：网页录音允许最多两小时且服务端音频大小上限为 10 MiB；Android 之前仅允许两分钟且 9 MiB。现在使用 `MediaFiles.MAX_VOICE_DURATION_MS` 与 `MAX_VOICE_BYTES` 并新增两项 Android instrumentation 配置断言。该常量检查不是麦克风实测，修改后仍必须在最终固定 SHA 的唯一整体验收中确认构建与 Android 检查。
+
+结论：源码静态映射覆盖网页单页中的主要可见页面状态和可操作控件；仍未证明逐像素视觉对齐、网页登录后的线上端到端完整流程、真实设备媒体/音频路由、真实断网/后台恢复。只读线上首页不等于这些场景已验收。SFU 仅允许通过 `cloudflare-sfu-isolated` 环境指向已确认隔离的 HTTPS 测试目标；不得改用生产环境。

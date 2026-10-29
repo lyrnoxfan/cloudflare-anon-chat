@@ -5,6 +5,9 @@ import java.io.*;
 /** Platform-independent bounded copies used by the system document flow. */
 final class MediaFiles {
   static final long MAX_BYTES = 100L * 1024 * 1024;
+  // Matches the web recorder cap; server upload limits remain authoritative.
+  static final long MAX_VOICE_BYTES = 10L * 1024 * 1024;
+  static final int MAX_VOICE_DURATION_MS = 2 * 60 * 60 * 1000;
   private MediaFiles() {}
 
   static String displayName(String value) {

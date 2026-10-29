@@ -3058,8 +3058,8 @@ public final class ChatFragment extends Fragment {
       recorder.setAudioEncodingBitRate(64000);
       recorder.setAudioSamplingRate(44100);
       recorder.setOutputFile(recording.getAbsolutePath());
-      recorder.setMaxDuration(120000);
-      recorder.setMaxFileSize(9 * 1024 * 1024);
+      recorder.setMaxDuration(MediaFiles.MAX_VOICE_DURATION_MS);
+      recorder.setMaxFileSize(MediaFiles.MAX_VOICE_BYTES);
       recorder.setOnInfoListener(
           (r, what, extra) -> {
             if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED
@@ -3074,7 +3074,7 @@ public final class ChatFragment extends Fragment {
       recordView.setPadding(0, dp(30), 0, dp(30));
       recordingDialog =
           new AlertDialog.Builder(getActivity())
-              .setTitle("录制语音 · 最长 2 分钟")
+              .setTitle("录制语音 · 最长 2 小时，10 MB 上限")
               .setView(recordView)
               .setNegativeButton("取消", (d, w) -> cancelRecording())
               .setPositiveButton("完成", (d, w) -> finishRecording())

@@ -27,6 +27,8 @@ final class MediaLifecycleChecks {
         throw new SecurityException("Loopback QA only");
       android.content.Context context = runner.getTargetContext();
       File cache = context.getCacheDir();
+      suite.check(MediaFiles.MAX_VOICE_DURATION_MS == 7_200_000, "voice recording matches web two-hour duration cap");
+      suite.check(MediaFiles.MAX_VOICE_BYTES == 10L * 1024 * 1024, "voice recording matches web 10 MiB size cap");
       byte[] bytes = "保存完整文件\nmedia-byte-check\n".getBytes("UTF-8");
       File source = File.createTempFile("source-", ".txt", cache);
       java.nio.file.Files.write(source.toPath(), bytes);
