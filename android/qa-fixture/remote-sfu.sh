@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
-# Three-native-session group-call check against the already authorized blue-room-test service.
-# Never deploys, changes cloud configuration, uses production secrets or clears existing data.
+# Three-native-session group-call check against a separately provisioned, isolated QA Worker.
+# This test creates rooms and call traffic: never point it at chat.lyrnox.com or production.
+# No deployment/configuration changes or production credentials are performed here.
 set -euo pipefail
+: "${QA_SFU_BASE_URL:?Configure QA_SFU_BASE_URL in the protected cloudflare-sfu-isolated environment}"
+: "${QA_SFU_TARGET:?Configure QA_SFU_TARGET in the protected cloudflare-sfu-isolated environment}"
+python3 - <<'PYVALIDATE'
+from urllib.parse import urlsplit
+import os, sys
+u=urlsplit(os.environ['QA_SFU_BASE_URL'])
+if (u.scheme != 'https' or not u.hostname or u.username or u.password or u.query or u.fragment
+    or u.path not in ('', '/') or u.hostname.lower() == 'chat.lyrnox.com'
+    or u.hostname.lower().endswith('.chat.lyrnox.com')):
+    sys.exit('Refusing SFU QA: base URL must be an isolated HTTPS origin, not the production chat host')
+if os.environ['QA_SFU_TARGET'].strip().lower() in ('', 'blue-room-test', 'production', 'prod'):
+    sys.exit('Refusing SFU QA: target must identify a separate isolated test service')
+PYVALIDATE
+if [[ "${1:-}" == "--preflight-only" ]]; then exit 0; fi
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 OUT="$PWD/android/evidence/sfu"; mkdir -p "$OUT"
 export ANDROID_AVD_HOME="$RUNNER_TEMP/sfu-avds"; mkdir -p "$ANDROID_AVD_HOME"

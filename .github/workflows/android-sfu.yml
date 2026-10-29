@@ -8,7 +8,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   sfu:
+    environment: cloudflare-sfu-isolated
     runs-on: ubuntu-24.04
+    env:
+      QA_SFU_BASE_URL: ${{ secrets.QA_SFU_BASE_URL }}
+      QA_SFU_TARGET: ${{ secrets.QA_SFU_TARGET }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -16,6 +20,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17.0.14+7'
+      - name: Require isolated non-production target
+        run: |
+          set -euo pipefail
+          test -n "$QA_SFU_BASE_URL" || { echo 'Missing QA_SFU_BASE_URL in protected cloudflare-sfu-isolated environment'; exit 1; }
+          test -n "$QA_SFU_TARGET" || { echo 'Missing QA_SFU_TARGET in protected cloudflare-sfu-isolated environment'; exit 1; }
+          bash android/qa-fixture/remote-sfu.sh --preflight-only
       - name: Exact Android toolchain
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' 'emulator' 'system-images;android-29;default;x86_64'
@@ -23,7 +33,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon -PqaSfu assembleQa assembleQaAndroidTest lintQa
+          ./gradlew --no-daemon -PqaSfu -PqaSfuBaseUrl="$QA_SFU_BASE_URL" -PqaSfuTarget="$QA_SFU_TARGET" assembleQa assembleQaAndroidTest lintQa
       - name: Verify three native SFU participants and decoded media
         run: bash android/qa-fixture/remote-sfu.sh
       - name: Upload sanitized SFU evidence

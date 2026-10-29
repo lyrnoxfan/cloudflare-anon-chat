@@ -2,6 +2,7 @@
 import json, os, subprocess, time
 from pathlib import Path
 out=Path(os.environ['QA_SFU_EVIDENCE'])
+target=os.environ['QA_SFU_TARGET']
 runner='com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.RemoteSfuInstrumentation'
 processes=[]
 serials={'owner':'emulator-5554','peer':'emulator-5556','extra':'emulator-5558'}
@@ -18,7 +19,7 @@ def read_metrics(serial):
     raise RuntimeError('Could not read live SFU media metrics on '+serial)
 def begin(serial,role,extra=()):
     f=open(out/f'{role}.txt','w',buffering=1)
-    p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget','blue-room-test','-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
+    p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget',target,'-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
     f.flush()
     processes.append((p,f)); return p
 def inspect_role(serial, role):
@@ -168,7 +169,7 @@ try:
         if role == 'peer' and 'PASS actual Activity invitation/join' not in text: raise AssertionError('Activity acceptance missing')
         if 'PASS native SFU '+role not in text or 'renderedRemoteVideoTracks=2' not in text or 'PASS native hangup' not in text or 'INSTRUMENTATION_CODE: -1' not in text:
             raise AssertionError(role+' group SFU acceptance failed')
-    (out/'result.json').write_text(json.dumps({'passed':True,'target':'blue-room-test / chat.lyrnox.com','devices':'three isolated Android 10 emulators','media':'three-way group call; each client received two independent remote video tracks; Activity rendered both remote participants; emulated Camera2 and microphone, not physical-device or subjective audio quality','network':'all three peer connections stayed connected and video counters progressed under 150 ms delay and 2 Mbps symmetric emulator bandwidth; audio continuity is assessed only when the emulated publishers emit audio bytes; no packet-loss or outage-recovery claim'},indent=2))
+    (out/'result.json').write_text(json.dumps({'passed':True,'target':target,'base_url':os.environ['QA_SFU_BASE_URL'],'devices':'three isolated Android 10 emulators','media':'three-way group call; each client received two independent remote video tracks; Activity rendered both remote participants; emulated Camera2 and microphone, not physical-device or subjective audio quality','network':'all three peer connections stayed connected and video counters progressed under 150 ms delay and 2 Mbps symmetric emulator bandwidth; audio continuity is assessed only when the emulated publishers emit audio bytes; no packet-loss or outage-recovery claim'},indent=2))
 finally:
     for p,f in processes:
         if p.poll() is None:

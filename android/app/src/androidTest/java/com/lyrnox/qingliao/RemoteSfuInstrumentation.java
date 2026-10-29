@@ -34,8 +34,9 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     String diagnosticStatus = "initializing";
     String diagnosticError = "";
     try (NativeCore core = new NativeCore(); ChatNet net = new ChatNet(getTargetContext(), !owner)) {
-      if (!BuildConfig.APPLICATION_ID.endsWith(".qa") || !"https://chat.lyrnox.com".equals(ChatNet.BASE)
-          || args == null || !"blue-room-test".equals(args.getString("approvedTarget")))
+      if (!BuildConfig.APPLICATION_ID.endsWith(".qa") || !BuildConfig.CHAT_BASE.equals(ChatNet.BASE)
+          || args == null || !BuildConfig.QA_SFU_TARGET.equals(args.getString("approvedTarget"))
+          || "local-fixture".equals(BuildConfig.QA_SFU_TARGET))
         throw new SecurityException("Explicit isolated test target required");
       String suffix = UUID.randomUUID().toString().substring(0,8);
       JSONObject session = net.api("/api/session", core.run("session", "nickname", "Native-SFU-" + suffix));

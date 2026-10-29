@@ -1,4 +1,11 @@
 plugins { id 'com.android.application' }
+def javaStringLiteral = { value -> '"' + value.toString().replace('\\', '\\\\').replace('"', '\\"') + '"' }
+def qaSfuEnabled = project.hasProperty('qaSfu')
+def qaSfuBaseUrl = project.findProperty('qaSfuBaseUrl')?.toString()
+def qaSfuTarget = project.findProperty('qaSfuTarget')?.toString()
+if (qaSfuEnabled && (!qaSfuBaseUrl || !qaSfuTarget)) {
+ throw new GradleException('Remote SFU QA requires -PqaSfuBaseUrl and -PqaSfuTarget for the isolated test environment')
+}
 android {
  namespace 'com.lyrnox.qingliao'
  testBuildType 'qa'
@@ -24,7 +31,8 @@ android {
    initWith debug
    applicationIdSuffix '.qa'
    versionNameSuffix '-qa'
-   buildConfigField 'String', 'CHAT_BASE', (project.hasProperty('qaSfu') ? '"https://chat.lyrnox.com"' : '"http://127.0.0.1:8000"')
+   buildConfigField 'String', 'CHAT_BASE', (qaSfuEnabled ? javaStringLiteral(qaSfuBaseUrl) : '"http://127.0.0.1:8000"')
+   buildConfigField 'String', 'QA_SFU_TARGET', (qaSfuEnabled ? javaStringLiteral(qaSfuTarget) : '"local-fixture"')
    matchingFallbacks = ['debug']
   }
  }

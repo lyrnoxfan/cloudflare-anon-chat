@@ -69,3 +69,11 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 
 - 固定提交 `20b3436f6ed966ebed830234b4620c97479799bf` 的唯一验收对（Android run `40894383210`、SFU run `40894387843`）均在 `ChatFragment.java:899` 编译阶段失败：新增发送失败回调签名引用了未声明的 `Failure` 接口；因此没有执行 Android/JNI/服务或 SFU 媒体测试，也没有构建 APK、证据或交付物。上传步骤提示产物缺失是该编译失败的后果，不是独立故障。
 - 已补上 `Failure.failed(Exception)` 接口。当前计算机缺 Android SDK（Gradle 报 `SDK location not found`），本地不能替代官方工作流编译；需要将修正固定为新 SHA，再运行唯一一组匹配提交的集中 Android+三方 SFU 验收。
+
+## 最新固定提交与 SFU 失败调查（2026-10-29）
+
+- 固定提交 `a98d4c05045577341720eecc3d33abe73f5c1f76` 的 Android 综合验收 run `40895049841` 通过；三方 SFU run `40895054570` 失败。此次 Android 结果包含模拟器、Activity/JNI 与本地服务流程，不代表真实设备或完整网页验收。
+- 失败工件 `deliver/g29-a98-sfu-failure/native-sfu-a98d4c05045577341720eecc3d33abe73f5c1f76/failure-diagnostics.json` 显示 owner 端停在 `failed:receiving-media`，远端轨道/解码帧皆为 0，通话端仅收到通用“媒体服务拒绝请求”错误；peer 角色未启动。extra 端成功完成接收/发布 ICE，解码 owner 视频 577 帧、收到 970 个音频包，选中的 UDP pair 为 succeeded。这排除了“所有端都无法建立媒体路径”的笼统说法，但不足以判定 owner 端被拒的具体请求或原因。
+- 工件中 owner candidate-pair 为空，provider 原始响应/`SFU_PROVIDER_FAILURE` 详情也没有保存。此前只读日志里看到的 HTTP 502 属于后续订阅重置请求；现有材料不能证明失败发生于哪一个 provider 请求，也不能据它认定首个订阅调用的根因。`src/sfu.ts` 可在 server-side log 记录脱敏的 path/status/body/track error，但本轮没有可确认隔离环境下的对应原始事件，故根因仍未定位。需要在隔离 Worker 上保留该次 `call-subscribe`/重协商原始脱敏诊断，再复现并对应请求阶段。
+- 该仓库既有 SFU workflow 与 instrumentation 固定指向 `https://chat.lyrnox.com`、`blue-room-test`；只读 Cloudflare 页面将其标为 production。为避免再次向生产房间发测试流量，SFU workflow 现只从 GitHub `cloudflare-sfu-isolated` 环境读取 `QA_SFU_BASE_URL` 和 `QA_SFU_TARGET`，在测试前拒绝已知生产域名，并把配置传入 QA build；缺少这些环境值即停止。现在没有已确认的隔离 endpoint/target，因此本轮没有运行 SFU 测试。
+- 本轮工作区未对 SFU 逻辑臆修；完整网页流程/全页面视觉、真机摄像头麦克风与音频路由、真实断网/丢包恢复仍未验收。最终可交付版本必须先有同一固定 SHA 的 Android 集中通过结果及隔离 SFU 三方通过结果，再核对该 SHA 的 APK、源码、报告、证据和校验和。
