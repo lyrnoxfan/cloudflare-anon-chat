@@ -1910,6 +1910,7 @@ public final class ChatFragment extends Fragment {
             pendingText = "";
             setStatus("已发送");
             refreshSnapshot(true);
+            scrollToLatestMessage();
           });
     } catch (Exception e) {
       error(e);
@@ -2477,6 +2478,7 @@ public final class ChatFragment extends Fragment {
                             .put("message", ((JSONObject) v).getJSONObject("message")));
                     setStatus("已发送");
                     refreshSnapshot(true);
+                    scrollToLatestMessage();
                   });
             })
         ;
