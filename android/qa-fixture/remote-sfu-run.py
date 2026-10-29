@@ -57,6 +57,7 @@ try:
     wait_marker('emulator-5554','files/sfu-pair-ready','owner first peer media',120)
     wait_marker('emulator-5558','files/sfu-pair-ready','extra first peer media',120)
     peer=begin('emulator-5556','peer',common)
+    wait_marker('emulator-5556','files/sfu-publisher-ready','Activity peer publisher',150)
     # Keep all three real clients publishing until each receiver sees two distinct
     # remote video tracks; peer additionally proves the Activity lays out both remotes.
     expected={'owner','peer','extra'}; ready=set(); deadline=time.monotonic()+300

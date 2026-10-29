@@ -101,10 +101,13 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         while (field(ui, "nativeCall") == null && System.currentTimeMillis() < until) Thread.sleep(250);
         call = (NativeCallSession) field(ui, "nativeCall");
         if (call == null) throw new AssertionError("Activity join View did not create native session");
+        // nativeCall is assigned before its asynchronous callIo task starts. Do not tell
+        // the three-emulator runner that this publisher is ready until call-start, join,
+        // local publishing, ICE connection and call-ready have actually completed.
+        awaitActivityPublisherReady(net, room, session.getString("id"), callId, ui, call, 120000);
       }
-      // Publish a safe phase marker after the real signaling/publisher setup. The runner
-      // serializes joiners so both existing media directions stabilize before the third
-      // emulator begins, avoiding three concurrent negotiations racing on the SFU.
+      // The runner's join barrier represents a server-confirmed ready publisher, not merely
+      // an Activity object allocated before its asynchronous startup has begun.
       java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-publisher-ready").toPath(),
           "publisher-ready".getBytes("UTF-8"));
       long deadline=System.currentTimeMillis()+150000;
@@ -117,7 +120,8 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
         if (!owner && !extra) {
           if (field(fragment, "nativeCall") != call)
-            throw new AssertionError("Activity call ended before receiving media");
+            throw new AssertionError("Activity call ended before receiving media; status=" + activityStatus(fragment));
+          status.set(activityStatus(fragment));
           final ChatFragment ui = fragment;
           AtomicReference<java.util.Set<String>> labels = new AtomicReference<>(new java.util.HashSet<>());
           AtomicInteger visibleCount = new AtomicInteger();
@@ -260,6 +264,57 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       if (call != null) call.stop();
     }
   }
+  private void awaitActivityPublisherReady(ChatNet net, String room, String selfId, String callId,
+      ChatFragment ui, NativeCallSession call, long timeoutMs) throws Exception {
+    long until = System.currentTimeMillis() + timeoutMs;
+    String lastState = "unavailable";
+    while (System.currentTimeMillis() < until) {
+      if (field(ui, "nativeCall") != call)
+        throw new AssertionError("Activity call ended before server-confirmed publisher readiness; status="
+            + activityStatus(ui) + "; room=" + lastState);
+      JSONObject snapshot = net.callApi(room, "call-state", null, null).optJSONObject("call");
+      if (snapshot == null) {
+        lastState = "call absent";
+      } else if (!callId.equals(snapshot.optString("id", ""))) {
+        lastState = "call changed";
+      } else {
+        JSONArray members = snapshot.optJSONArray("members");
+        boolean joined = snapshot.optBoolean("joined");
+        boolean hasAudio = false, hasVideo = false;
+        if (members != null) for (int i = 0; i < members.length(); i++) {
+          JSONObject member = members.optJSONObject(i);
+          if (member == null || !selfId.equals(member.optString("id", ""))) continue;
+          JSONArray tracks = member.optJSONArray("tracks");
+          if (tracks != null) for (int j = 0; j < tracks.length(); j++) {
+            String kind = tracks.optJSONObject(j) == null ? "" : tracks.optJSONObject(j).optString("kind", "");
+            if ("audio".equals(kind)) hasAudio = true;
+            if ("video".equals(kind)) hasVideo = true;
+          }
+          break;
+        }
+        lastState = "joined=" + joined + ", ownReadyTracks={audio:" + hasAudio + ",video:" + hasVideo + "}";
+        if (joined && hasAudio && hasVideo) return;
+      }
+      Thread.sleep(1500);
+    }
+    throw new AssertionError("Activity publisher never reached server-confirmed ready state within "
+        + timeoutMs + "ms; status=" + activityStatus(ui) + "; " + lastState
+        + "; publisherPeerCreated=" + (field(call, "peer") != null));
+  }
+
+  private String activityStatus(ChatFragment ui) throws Exception {
+    AtomicReference<String> value = new AtomicReference<>("");
+    runOnMainSync(() -> {
+      try {
+        android.widget.TextView statusView = (android.widget.TextView) field(ui, "statusView");
+        android.widget.TextView callLabel = (android.widget.TextView) field(ui, "callLabel");
+        value.set("status=" + (statusView == null ? "" : statusView.getText())
+            + "; call=" + (callLabel == null ? "" : callLabel.getText()));
+      } catch (Exception e) { value.set("status-read-error=" + e.getClass().getSimpleName()); }
+    });
+    return value.get();
+  }
+
   private void writeMediaMetrics(String role, JSONObject stats, JSONObject publisher) throws Exception {
     JSONObject evidence = new JSONObject().put("role", role)
         .put("connectionState", stats.optString("connectionState", "unknown"))
