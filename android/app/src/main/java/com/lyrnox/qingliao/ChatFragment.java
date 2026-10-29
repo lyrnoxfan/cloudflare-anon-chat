@@ -3167,6 +3167,10 @@ public final class ChatFragment extends Fragment {
   }
 
   boolean back() {
+    if (drawerOverlay != null && drawerOverlay.getVisibility() == View.VISIBLE) {
+      closeRoomDrawer();
+      return true;
+    }
     if (emojiPanel != null && emojiPanel.getVisibility() == View.VISIBLE) {
       emojiPanel.setVisibility(View.GONE);
       return true;

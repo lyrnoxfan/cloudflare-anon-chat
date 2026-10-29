@@ -112,6 +112,9 @@ try:
     capture('05-room-drawer')
     passed('native room drawer exposes join/create actions')
     adb('shell','input','keyevent','4')
+    locate('消息内容','content-desc')
+    assert not any(n.get('text') == '通过房号加入' for n in tree().iter('node'))
+    passed('Back closes the room drawer without leaving Activity')
     # The system change recreates the Activity: also exercises durable session restoration.
     adb('shell','cmd','uimode','night','yes')
     locate('消息内容','content-desc')
