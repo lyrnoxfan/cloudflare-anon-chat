@@ -262,7 +262,12 @@ final class NativeCallSession {
 
   private synchronized void beat() {
     if (stopRequested.get() || !joined) return;
-    try { net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap); }
+    try {
+      JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
+      if (!callId.equals(fresh.optString("id")) || !fresh.optBoolean("joined"))
+        throw new IOException("通话授权或连接已过期，请重新加入");
+      cap = fresh.getString("cap");
+    }
     catch (Exception e) { failCall("通话心跳失败：" + safeMessage(e)); }
   }
 
@@ -272,6 +277,8 @@ final class NativeCallSession {
       JSONObject snapshot = net.callApi(room, "call-state", null, null).optJSONObject("call");
       if (snapshot == null || !callId.equals(snapshot.optString("id")))
         throw new IOException("通话已结束或发生变化");
+      if (!snapshot.optBoolean("joined")) throw new IOException("通话授权或连接已过期，请重新加入");
+      cap = snapshot.getString("cap");
       JSONArray members = snapshot.optJSONArray("members");
       if (members == null) return;
       JSONArray subscribe = new JSONArray();

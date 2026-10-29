@@ -116,7 +116,8 @@ try:
     locate('取消回复','content-desc')
     passed('message long press opens reply draft')
     tap('取消回复','content-desc')
-    adb('shell','input','keyevent','4')
+    # Cancel clears only the reply state; the keyboard may already be hidden.
+    # Do not send an unconditional Back that can legitimately leave the Activity.
     tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
     tap('删除')
     locate('删除这条消息？其他成员也会看到删除状态。')

@@ -53,10 +53,11 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       core.run("reset", "room", room);
       AtomicInteger frames = new AtomicInteger();
       AtomicReference<String> failure = new AtomicReference<>();
+      AtomicReference<String> status = new AtomicReference<>("initializing");
       VideoSink sink = frame -> { if (frame.getBuffer().getWidth()>0 && frame.getBuffer().getHeight()>0) frames.incrementAndGet(); };
       AtomicReference<VideoTrack> remote = new AtomicReference<>();
       call = new NativeCallSession(getTargetContext(),core,net,room,session.getString("id"),new NativeCallSession.Listener(){
-        public void onStatus(String text) { System.out.println("SFU status: "+text); }
+        public void onStatus(String text) { status.set(text); }
         public void onFailure(String text) { failure.set(text); }
         public void onLocalVideo(VideoTrack track,EglBase.Context egl) {}
         public void onRemoteVideo(VideoTrack track,EglBase.Context egl) {
@@ -67,14 +68,14 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       long deadline=System.currentTimeMillis()+120000;
       long audioPackets=0,videoBytes=0;
       while(System.currentTimeMillis()<deadline) {
-        if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get());
+        if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");
         if(frames.get()>=10 && audioPackets>10 && videoBytes>0) break;
         Thread.sleep(1500);
       }
       if(frames.get()<10 || audioPackets<=10 || videoBytes<=0)
-        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes);
+        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; lastStatus="+status.get());
       if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
       if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
       if(call.toggleCamera()) throw new AssertionError("Camera disable failed");
