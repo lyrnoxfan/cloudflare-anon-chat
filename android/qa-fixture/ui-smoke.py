@@ -86,7 +86,11 @@ try:
     adb('shell','input','keyevent','4')
     # A matching EditText is an unsent draft, not a delivered message.
     locate(marker, class_name='android.widget.TextView')
-    assert locate('消息内容', 'content-desc').get('text', '') == ''
+    # UIAutomator exposes EditText hint as text when the actual value is empty.
+    composer = locate('消息内容', 'content-desc')
+    assert composer.get('text', '') in ('', '说点什么…'), 'Composer retains a draft'
+    locate('录制语音', 'content-desc')
+    assert not any(n.get('content-desc') == '发送消息' for n in tree().iter('node'))
     passed('typed text is sent and rendered in Activity')
     capture('03-sent-message')
     tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
