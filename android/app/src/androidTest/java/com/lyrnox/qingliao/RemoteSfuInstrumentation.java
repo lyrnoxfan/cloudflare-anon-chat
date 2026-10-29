@@ -6,6 +6,7 @@ import android.content.Context;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.UUID;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -436,7 +437,23 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     CountDownLatch done=new CountDownLatch(1);
     peer.getStats(report -> {
       long audio=0,video=0,outAudio=0,outVideo=0;
+      JSONArray candidatePairs=new JSONArray();
       for(RTCStats stat:report.getStatsMap().values()) {
+        if("candidate-pair".equals(stat.getType())) {
+          Map<String,Object> members=stat.getMembers();
+          JSONObject pair=new JSONObject();
+          try {
+            pair.put("state",members.get("state"));
+            pair.put("nominated",members.get("nominated"));
+            pair.put("selected",members.get("selected"));
+            pair.put("bytesReceived",members.get("bytesReceived"));
+            pair.put("bytesSent",members.get("bytesSent"));
+            pair.put("localCandidateId",members.get("localCandidateId"));
+            pair.put("remoteCandidateId",members.get("remoteCandidateId"));
+            candidatePairs.put(pair);
+          } catch(Exception ignored) {}
+          continue;
+        }
         if(!"inbound-rtp".equals(stat.getType()) && !"outbound-rtp".equals(stat.getType())) continue;
         Object kind=stat.getMembers().get("kind"); if(kind==null) kind=stat.getMembers().get("mediaType");
         if ("outbound-rtp".equals(stat.getType())) {
@@ -449,7 +466,18 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         if("audio".equals(kind) && n instanceof Number) audio+=((Number)n).longValue();
         if("video".equals(kind) && bytes instanceof Number) video+=((Number)bytes).longValue();
       }
-      try { out.put("audioPackets",audio).put("videoBytes",video).put("sentAudioBytes",outAudio).put("sentVideoBytes",outVideo); } catch(Exception ignored) {}
+      // Candidate-pair IDs are joined to candidate type/protocol only; never persist IP addresses.
+      for(int i=0;i<candidatePairs.length();i++) {
+        JSONObject pair=candidatePairs.optJSONObject(i);
+        for(String side:new String[]{"local","remote"}) {
+          Object id=pair.opt(side+"CandidateId");
+          RTCStats candidate=id==null?null:report.getStatsMap().get(String.valueOf(id));
+          if(candidate!=null && (side.equals("local") ? "local-candidate" : "remote-candidate").equals(candidate.getType())) {
+            try { pair.put(side+"CandidateType",candidate.getMembers().get("candidateType")); pair.put(side+"Protocol",candidate.getMembers().get("protocol")); } catch(Exception ignored) {}
+          }
+        }
+      }
+      try { out.put("audioPackets",audio).put("videoBytes",video).put("sentAudioBytes",outAudio).put("sentVideoBytes",outVideo).put("candidatePairs",candidatePairs); } catch(Exception ignored) {}
       done.countDown();
     });
     if(!done.await(5,TimeUnit.SECONDS)) throw new AssertionError("RTCStats timeout");
