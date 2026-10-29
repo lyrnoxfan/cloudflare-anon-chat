@@ -112,6 +112,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       int renderedRemoteCount=0;
       boolean pairReadyWritten = false;
       AtomicReference<Boolean> tracksDecoded = new AtomicReference<>(false);
+      AtomicReference<String> liveTrackDiagnostics = new AtomicReference<>("[]");
       while(System.currentTimeMillis()<deadline) {
         if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
         if (!owner && !extra) {
@@ -144,10 +145,17 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
               }
               visibleCount.set(attached);
               labels.set(names);
-              tracksDecoded.set(liveTracks.size() >= 2 && liveTracks.stream().allMatch(track -> {
+              java.util.List<String> trackEvidence = new java.util.ArrayList<>();
+              boolean eachCurrentTrackDecoded = liveTracks.size() >= 2;
+              for (VideoTrack track : liveTracks) {
                 AtomicInteger count = framesByTrack.get(track);
-                return count != null && count.get() >= 10;
-              }));
+                int frames = count == null ? 0 : count.get();
+                trackEvidence.add(Integer.toHexString(System.identityHashCode(track)) + ":" + frames);
+                if (frames < 10) eachCurrentTrackDecoded = false;
+              }
+              java.util.Collections.sort(trackEvidence);
+              liveTrackDiagnostics.set(trackEvidence.toString());
+              tracksDecoded.set(eachCurrentTrackDecoded);
             } catch (Exception e) { throw new RuntimeException(e); }
           });
           renderedRemoteCount = visibleCount.get();
@@ -176,7 +184,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         Thread.sleep(1500);
       }
       if (decodedFrames.get() < 20 || !tracksDecoded.get() || audioPackets <= 10 || videoBytes <= 0 || renderedRemoteCount < 2)
-        throw new AssertionError("Remote group media incomplete: remoteVideoTracks="+renderedRemoteCount+", frames="+decodedFrames.get()+", perTrackFrames="+frameCounts()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
+        throw new AssertionError("Remote group media incomplete: remoteVideoTracks="+renderedRemoteCount+", tracksDecoded="+tracksDecoded.get()+", visibleTrackFrames="+liveTrackDiagnostics.get()+", frames="+decodedFrames.get()+", allObservedPerTrackFrames="+frameCounts()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
       if (owner || extra) {
         if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
         if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
