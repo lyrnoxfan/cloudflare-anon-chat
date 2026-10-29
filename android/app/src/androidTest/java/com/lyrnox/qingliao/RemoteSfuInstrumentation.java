@@ -156,7 +156,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         }
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");
-        writeMediaMetrics(args.getString("role", "unknown"), stats);
+        writeMediaMetrics(args.getString("role", "unknown"), stats, stats(call, "peer"));
         if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 && renderedRemoteCount >= 2) break;
         Thread.sleep(1500);
       }
@@ -228,10 +228,16 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       if (call != null) call.stop();
     }
   }
-  private void writeMediaMetrics(String role, JSONObject stats) throws Exception {
+  private void writeMediaMetrics(String role, JSONObject stats, JSONObject publisher) throws Exception {
     JSONObject evidence = new JSONObject().put("role", role)
+        .put("connectionState", stats.optString("connectionState", "unknown"))
+        .put("iceState", stats.optString("iceState", "unknown"))
         .put("audioPackets", stats.optLong("audioPackets"))
         .put("videoBytes", stats.optLong("videoBytes"))
+        .put("publisherConnectionState", publisher.optString("connectionState", "unknown"))
+        .put("publisherIceState", publisher.optString("iceState", "unknown"))
+        .put("publisherAudioBytes", publisher.optLong("sentAudioBytes"))
+        .put("publisherVideoBytes", publisher.optLong("sentVideoBytes"))
         .put("decodedFrames", decodedFrames.get())
         .put("sampledAtMs", System.currentTimeMillis());
     java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-metrics.json").toPath(),
