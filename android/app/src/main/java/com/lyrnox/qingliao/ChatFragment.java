@@ -57,6 +57,7 @@ public final class ChatFragment extends Fragment {
   private FrameLayout root, sessionOverlay, chatArea, drawerOverlay;
   private LinearLayout drawerPanel;
   private LinearLayout content, emojiPanel, sessionGate;
+  private ScrollView emojiScroll;
   private EditText gateName;
   private TextView gateError;
   private Button gateEnter;
@@ -292,6 +293,10 @@ public final class ChatFragment extends Fragment {
     applyPalette();
     root = new FrameLayout(getActivity());
     root.setBackgroundColor(bg);
+    root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+      resizeCallVideoGrid();
+      resizeEmojiPanel();
+    });
     content = vertical();
     content.setBackgroundColor(bg);
     root.addView(content, new FrameLayout.LayoutParams(-1, -1));
@@ -521,7 +526,9 @@ public final class ChatFragment extends Fragment {
     content.addView(chatArea, new LinearLayout.LayoutParams(-1, 0, 1));
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
-    ScrollView sc = new ScrollView(getActivity());
+    emojiScroll = new ScrollView(getActivity());
+    emojiScroll.setFillViewport(false);
+    emojiScroll.setVerticalScrollBarEnabled(false);
     GridLayout grid = new GridLayout(getActivity());
     grid.setColumnCount(7);
     grid.setPadding(dp(6), dp(6), dp(6), dp(6));
@@ -551,8 +558,8 @@ public final class ChatFragment extends Fragment {
       } catch (Exception ignored) {
       }
     }
-    sc.addView(grid);
-    emojiPanel.addView(sc, new LinearLayout.LayoutParams(-1, dp(220)));
+    emojiScroll.addView(grid);
+    emojiPanel.addView(emojiScroll, new LinearLayout.LayoutParams(-1, dp(220)));
     content.addView(emojiPanel);
     replyDraft = new LinearLayout(getActivity());
     replyDraft.setGravity(Gravity.CENTER_VERTICAL);
@@ -710,6 +717,7 @@ public final class ChatFragment extends Fragment {
     callButtonScroll = null;
     callEnd = null;
     emojiPanel = null;
+    emojiScroll = null;
     replyDraft = null;
     replyName = null;
     replyText = null;
@@ -1476,6 +1484,7 @@ public final class ChatFragment extends Fragment {
     int columns = count <= 1 ? 1 : 2;
     callVideoGrid.setColumnCount(columns);
     callVideoGrid.setRowCount(Math.max(1, (count + columns - 1) / columns));
+    resizeCallVideoGrid();
     for (int i = 0; i < count; i++) {
       GridLayout.LayoutParams params = new GridLayout.LayoutParams(
           GridLayout.spec(i / columns, 1, 1f), GridLayout.spec(i % columns, 1, 1f));
@@ -1483,6 +1492,39 @@ public final class ChatFragment extends Fragment {
       params.height = 0;
       params.setMargins(dp(2), dp(2), dp(2), dp(2));
       callVideoGrid.addView(tiles.get(i), params);
+    }
+    // Recalculate after children are attached; the layout listener handles later resizes.
+    resizeCallVideoGrid();
+  }
+
+  /** Keep the native participant grid readable on short screens without hiding the chat.
+   * The web call panel is capped at 46vh; reserve a little room for its heading and controls.
+   */
+  private void resizeCallVideoGrid() {
+    if (callVideoContainer == null) return;
+    int count = callVideoGrid == null ? 0 : callVideoGrid.getChildCount();
+    int rows = Math.max(1, (count + 1) / 2);
+    int viewport = root == null ? 0 : root.getHeight();
+    if (viewport <= 0) viewport = getResources().getDisplayMetrics().heightPixels;
+    int target = Math.min(dp(250) * rows, Math.round(viewport * 0.42f));
+    target = Math.max(dp(120), target);
+    ViewGroup.LayoutParams params = callVideoContainer.getLayoutParams();
+    if (params != null && params.height != target) {
+      params.height = target;
+      callVideoContainer.setLayoutParams(params);
+    }
+  }
+
+  /** Match the web picker’s viewport cap and preserve a touch-scrollable grid above the keyboard. */
+  private void resizeEmojiPanel() {
+    if (emojiScroll == null) return;
+    int viewport = root == null ? 0 : root.getHeight();
+    if (viewport <= 0) viewport = getResources().getDisplayMetrics().heightPixels;
+    int target = Math.max(dp(84), Math.min(dp(220), viewport - dp(190)));
+    ViewGroup.LayoutParams params = emojiScroll.getLayoutParams();
+    if (params != null && params.height != target) {
+      params.height = target;
+      emojiScroll.setLayoutParams(params);
     }
   }
 

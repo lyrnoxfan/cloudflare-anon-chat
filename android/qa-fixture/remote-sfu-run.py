@@ -4,6 +4,18 @@ from pathlib import Path
 out=Path(os.environ['QA_SFU_EVIDENCE'])
 runner='com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.RemoteSfuInstrumentation'
 processes=[]
+serials={'owner':'emulator-5554','peer':'emulator-5556','extra':'emulator-5558'}
+def adb_emulator(serial, *args):
+    return subprocess.check_output(['adb','-s',serial,'emu',*args],stderr=subprocess.STDOUT,timeout=10).decode(errors='replace').strip()
+def read_metrics(serial):
+    deadline=time.monotonic()+20
+    while time.monotonic()<deadline:
+        r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat','files/sfu-metrics.json'],capture_output=True,timeout=10)
+        if r.returncode==0:
+            try: return json.loads(r.stdout)
+            except (ValueError,UnicodeDecodeError): pass
+        time.sleep(0.5)
+    raise RuntimeError('Could not read live SFU media metrics on '+serial)
 def begin(serial,role,extra=()):
     f=open(out/f'{role}.txt','w')
     p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget','blue-room-test','-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
@@ -39,9 +51,36 @@ try:
         if ready==expected: break
         if any(p.poll() is not None for p,f in processes): break
         time.sleep(1)
-    if ready == expected:
-        screenshot=subprocess.check_output(['adb','-s','emulator-5556','exec-out','screencap','-p'],timeout=10)
-        (out/'peer-activity-connected.png').write_bytes(screenshot)
+    if ready != expected:
+        raise RuntimeError('Three clients did not all reach media-ready: '+str(sorted(ready)))
+    screenshot=subprocess.check_output(['adb','-s','emulator-5556','exec-out','screencap','-p'],timeout=10)
+    (out/'peer-activity-connected.png').write_bytes(screenshot)
+    # Exercise a reproducible constrained path on all three emulators while the
+    # actual SFU media sessions remain live. This checks media continuity under
+    # 150 ms RTT-style delay and 2 Mbps symmetric bandwidth, not packet-loss recovery.
+    before={role:read_metrics(serial) for role,serial in serials.items()}
+    network_applied=[]
+    try:
+        for serial in serials.values():
+            adb_emulator(serial,'network','delay','150')
+            network_applied.append(serial)
+            adb_emulator(serial,'network','speed','2048','2048')
+        time.sleep(15)
+        after={role:read_metrics(serial) for role,serial in serials.items()}
+        for role in serials:
+            if after[role]['audioPackets'] <= before[role]['audioPackets']:
+                raise AssertionError(role+' received no additional audio packets under constrained network')
+            if after[role]['videoBytes'] <= before[role]['videoBytes']:
+                raise AssertionError(role+' received no additional video bytes under constrained network')
+        (out/'network-impairment.json').write_text(json.dumps({
+            'passed':True,'conditions':{'emulator_network_delay_ms':150,'down_mbps':2,'up_mbps':2,'duration_seconds':15},
+            'media_counters_before':before,'media_counters_after':after,
+            'claim':'all three live SFU clients continued receiving audio packets and video bytes; no packet-loss or outage-recovery claim'
+        },indent=2))
+    finally:
+        for serial in network_applied:
+            adb_emulator(serial,'network','speed','full')
+            adb_emulator(serial,'network','delay','none')
     # Peer exercises Home/cleanup before the other clients hang up.
     for serial in ('emulator-5556','emulator-5558','emulator-5554'):
         subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','mkdir','-p','files'],check=True,timeout=10)
@@ -54,7 +93,7 @@ try:
         if role == 'peer' and 'PASS actual Activity invitation/join' not in text: raise AssertionError('Activity acceptance missing')
         if 'PASS native SFU '+role not in text or 'renderedRemoteVideoTracks=2' not in text or 'PASS native hangup' not in text or 'INSTRUMENTATION_CODE: -1' not in text:
             raise AssertionError(role+' group SFU acceptance failed')
-    (out/'result.json').write_text(json.dumps({'passed':True,'target':'blue-room-test / chat.lyrnox.com','devices':'three isolated Android 10 emulators','media':'three-way group call; each client received two independent remote video tracks; Activity rendered both remote participants; emulated Camera2 and microphone, not physical-device or subjective audio quality'},indent=2))
+    (out/'result.json').write_text(json.dumps({'passed':True,'target':'blue-room-test / chat.lyrnox.com','devices':'three isolated Android 10 emulators','media':'three-way group call; each client received two independent remote video tracks; Activity rendered both remote participants; emulated Camera2 and microphone, not physical-device or subjective audio quality','network':'all three live sessions continued to receive media under 150 ms delay and 2 Mbps symmetric emulator bandwidth; no packet-loss or outage-recovery claim'},indent=2))
 finally:
     for p,f in processes:
         if p.poll() is None:

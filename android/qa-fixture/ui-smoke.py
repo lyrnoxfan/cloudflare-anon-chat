@@ -165,8 +165,37 @@ try:
     passed('own-message deletion renders tombstone')
     tap('打开表情','content-desc')
     locate('插入表情','content-desc',contains=True)
+    emoji_tree = tree()
+    emoji_scroll = next((n for n in emoji_tree.iter('node')
+                         if n.get('class') == 'android.widget.ScrollView'
+                         and any(x.get('content-desc', '').startswith('插入表情 ')
+                                 for x in n.iter('node'))), None)
+    assert emoji_scroll is not None, 'Emoji picker is missing its scroll container'
+    assert emoji_scroll.get('scrollable') == 'true', 'Emoji grid cannot be swiped'
+    sx1, sy1, sx2, sy2 = map(int, re.findall(r'\d+', emoji_scroll.get('bounds', '')))
+    assert sy2 > sy1 and sx2 > sx1, 'Emoji viewport has no visible size'
+    physical = adb('shell', 'wm', 'size').decode(errors='replace')
+    match = re.search(r'(?:Physical|Override) size: (\d+)x(\d+)', physical)
+    assert match and sy2 <= int(match.group(2)), 'Emoji picker extends beyond device viewport'
+    def visible_emoji(root, viewport):
+        vx1, vy1, vx2, vy2 = viewport
+        found = set()
+        for node in root.iter('node'):
+            desc = node.get('content-desc', '')
+            if not desc.startswith('插入表情 '):
+                continue
+            x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds', '')))
+            if x2 > vx1 and x1 < vx2 and y2 > vy1 and y1 < vy2:
+                found.add(desc)
+        return found
+    before_emoji = visible_emoji(emoji_tree, (sx1, sy1, sx2, sy2))
+    adb('shell', 'input', 'swipe', str((sx1+sx2)//2), str(sy2-18),
+        str((sx1+sx2)//2), str(sy1+18), '450')
+    time.sleep(0.5)
+    after_emoji = visible_emoji(tree(), (sx1, sy1, sx2, sy2))
+    assert before_emoji and after_emoji and before_emoji != after_emoji, 'Emoji picker did not scroll to new entries'
     capture('04-emoji-panel')
-    passed('bounded emoji panel is reachable')
+    passed('emoji picker is viewport-bounded and swipes to additional entries')
     tap('打开表情','content-desc')
     tap('打开房间导航','content-desc')
     locate('通过房号加入')

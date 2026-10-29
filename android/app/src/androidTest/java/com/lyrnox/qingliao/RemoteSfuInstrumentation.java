@@ -155,6 +155,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         }
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");
+        writeMediaMetrics(args.getString("role", "unknown"), stats);
         if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 && renderedRemoteCount >= 2) break;
         Thread.sleep(1500);
       }
@@ -225,6 +226,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       framesByTrack.clear();
       if (call != null) call.stop();
     }
+  }
+  private void writeMediaMetrics(String role, JSONObject stats) throws Exception {
+    JSONObject evidence = new JSONObject().put("role", role)
+        .put("audioPackets", stats.optLong("audioPackets"))
+        .put("videoBytes", stats.optLong("videoBytes"))
+        .put("decodedFrames", decodedFrames.get())
+        .put("sampledAtMs", System.currentTimeMillis());
+    java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-metrics.json").toPath(),
+        evidence.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
   }
   private void addFrameSink(VideoTrack track) {
     sinksByTrack.computeIfAbsent(track, key -> {
