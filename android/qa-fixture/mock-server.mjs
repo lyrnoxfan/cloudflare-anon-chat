@@ -21,7 +21,7 @@ const messages = [
   {id:'qa-msg-003',created:now-86200000,nickname:'阿禾',mine:true,kind:'text',text:'听起来不错！有什么有意思的发现吗？'},
   {id:'qa-msg-004',created:now-86000000,nickname:'小简',mine:false,kind:'text',text:'找到一本关于森林的画册 🌿'},
   {id:'qa-msg-005',created:now-85999900,nickname:'小简',mine:false,kind:'text',text:'下次可以一起去看看。'},
-  {id:'qa-msg-006',created:now-40000,nickname:'阿禾',mine:false,kind:'audio',filename:'语音消息.wav',mime:'audio/wav',size:529244,duration:12},
+  {id:'qa-msg-006',created:now-40000,nickname:'阿禾',mine:false,kind:'audio',filename:'语音消息.wav',mime:'audio/wav',size:2646044,duration:60},
   {id:'qa-msg-007',created:now-30000,nickname:'阿禾',mine:false,kind:'image',filename:'书店.png',mime:'image/png',size:fs.statSync(pathname('bookshop.png')).size},
   {id:'qa-msg-008',created:now-20000,nickname:'阿禾',mine:false,kind:'video',filename:'森林散步.mp4',mime:'video/mp4',size:fs.statSync(pathname('forest.mp4')).size,duration:2},
   {id:'qa-msg-009',created:now-10000,nickname:'阿禾',mine:false,kind:'file',filename:'书店笔记.txt',mime:'text/plain',size:Buffer.byteLength('周末书店\n森林画册：一起去看看。\n咖啡：到店再选。\n')},
@@ -53,7 +53,7 @@ function broadcast(event) {
   for(const client of clients) if(!client.destroyed) client.write(frame);
 }
 function wav() {
-  const rate=22050, samples=rate*12, data=Buffer.alloc(samples*2);
+  const rate=22050, samples=rate*60, data=Buffer.alloc(samples*2);
   for(let i=0;i<samples;i++) data.writeInt16LE(Math.round(Math.sin(2*Math.PI*440*i/rate)*2500),i*2);
   const h=Buffer.alloc(44);h.write('RIFF',0);h.writeUInt32LE(36+data.length,4);h.write('WAVE',8);h.write('fmt ',12);h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(1,22);h.writeUInt32LE(rate,24);h.writeUInt32LE(rate*2,28);h.writeUInt16LE(2,32);h.writeUInt16LE(16,34);h.write('data',36);h.writeUInt32LE(data.length,40);return Buffer.concat([h,data]);
 }

@@ -2171,7 +2171,8 @@ public final class ChatFragment extends Fragment {
         else if (playback == activeAudio && player != null && playback.ready) {
           boolean playing = player.isPlaying();
           toggle.setText(playing ? "Ⅱ" : "▶");
-          toggle.setContentDescription(playing ? "暂停语音" : "继续播放语音");
+          toggle.setContentDescription(playing ? "暂停语音" :
+              player.getCurrentPosition() >= seek.getMax() ? "重播语音" : "继续播放语音");
           clock.setText(durationLabel(oldProgress));
         }
         card.setTag(playback);
@@ -2874,7 +2875,8 @@ public final class ChatFragment extends Fragment {
           int position = player.getCurrentPosition();
           playback.seek.setProgress(position);
           playback.clock.setText(durationLabel(position));
-          main.postDelayed(this, 300);
+          // A 1-second clock update keeps accessibility services able to observe an idle UI.
+          main.postDelayed(this, 1000);
         }
       }
     };

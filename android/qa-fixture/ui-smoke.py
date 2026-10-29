@@ -207,7 +207,8 @@ try:
     wait_palette(False)
     capture('07-chat-restored')
     passed('light mode restores after configuration change')
-    # Audio uses a 12-second generated PCM fixture, not a real microphone recording.
+    # Audio uses a 60-second generated PCM fixture, not a real microphone recording.
+    # Leave enough playback time for slow emulator accessibility snapshots.
     tap_node(scroll_locate('播放语音', 'content-desc', direction='down'))
     locate('暂停语音', 'content-desc')
     tap('暂停语音', 'content-desc')
