@@ -135,6 +135,21 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       if (owner) { call.stop(); call=null; }
       else {
         final ChatFragment ui = fragment;
+        // Exercise real screen-off/on while the native call is live. The disposable AOSP
+        // emulator has no credential lock, so this tests lifecycle interruption, not PIN UX.
+        shell("input keyevent 26");
+        long lockDeadline = System.currentTimeMillis() + 20000;
+        while ((field(ui, "nativeCall") != null || call.isMicrophoneReady() || call.isCameraReady())
+            && System.currentTimeMillis() < lockDeadline) Thread.sleep(250);
+        if (field(ui, "nativeCall") != null || call.isMicrophoneReady() || call.isCameraReady())
+          throw new AssertionError("Screen-off did not release call and capture tracks");
+        shell("input keyevent 26");
+        Thread.sleep(1000);
+        getTargetContext().startActivity(new android.content.Intent(getTargetContext(), MainActivity.class)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        Thread.sleep(1000);
+        if (field(ui, "nativeCall") != null) throw new AssertionError("Screen-on silently restarted capture");
+        result.putString("stream", result.getString("stream") + "PASS screen-off releases call/capture; screen-on does not restart\n");
         if (!getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME))
           throw new AssertionError("Android did not perform Home action");
         long until = System.currentTimeMillis() + 25000;
@@ -156,6 +171,10 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     } catch(Throwable e) {
       result.putString("stream","FAILED "+e.getClass().getSimpleName()+": "+e.getMessage()+"\n"); finish(0,result);
     } finally { if(call!=null) call.stop(); }
+  }
+  private void shell(String command) throws Exception {
+    android.os.ParcelFileDescriptor descriptor = getUiAutomation().executeShellCommand(command);
+    try { if (descriptor != null) descriptor.close(); } finally { waitForIdleSync(); }
   }
   private static Object field(Object target, String name) throws Exception {
     Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target);

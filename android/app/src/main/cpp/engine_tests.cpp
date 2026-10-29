@@ -48,6 +48,11 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  e.command({{"op","history"},{"messages",J::array({a,b,a})}});auto snap=e.command({{"op","snapshot"}});check(snap["messages"].size()==2);check(snap["messages"][0]["id"]=="a");
  e.command({{"op","event"},{"event",{{"type","deleted"},{"id","a"}}}});e.command({{"op","history"},{"messages",J::array({b})}});check(e.command({{"op","snapshot"}})["messages"][0]["deleted"]==1);
  e.command({{"op","event"},{"event",{{"type","deleted"},{"id","unknown"}}}});e.command({{"op","history"},{"messages",J::array({{{"id","unknown"},{"created",30},{"text","stale"}}})}});check(e.command({{"op","snapshot"}})["messages"][2]["deleted"]==1);
+ check(e.command({{"op","retry"},{"attempt",-1}})["delay"]==1000);
+ for (int attempt=0; attempt<=5; ++attempt) {
+   const int expected[] = {1000,2000,4000,8000,16000,30000};
+   check(e.command({{"op","retry"},{"attempt",attempt}})["delay"]==expected[attempt]);
+ }
  check(e.command({{"op","retry"},{"attempt",20}})["delay"]==30000);
  J u={{"op","upload"},{"size",100},{"mime","image/png"},{"filename","图.png"},{"clientId","id"}};check(e.command(u)["kind"]=="image");u["size"]=11*1024*1024;check(rejects(u));u["mime"]="application/octet-stream";check(e.command(u)["kind"]=="file");u["size"]=0;check(rejects(u));
  e.command({{"op","reset"},{"room","1234567890"}});check(e.command({{"op","snapshot"}})["messages"].empty());
