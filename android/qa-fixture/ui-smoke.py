@@ -22,7 +22,12 @@ def adb(*args, timeout=25):
     return subprocess.check_output(['adb', *args], timeout=timeout)
 
 def tree():
-    adb('shell', 'uiautomator', 'dump', '/sdcard/qa-window.xml')
+    # UIAutomator may print an idle timeout but return exit 0 and leave an old XML.
+    # Delete that prior snapshot, and reject the failure instead of reading stale UI.
+    adb('shell', 'rm', '-f', '/sdcard/qa-window.xml')
+    result = adb('shell', 'uiautomator', 'dump', '/sdcard/qa-window.xml')
+    if b'UI hierchary dumped to' not in result:
+        raise AssertionError('UIAutomator did not create a fresh hierarchy: ' + result.decode(errors='replace'))
     return ET.fromstring(adb('shell', 'cat', '/sdcard/qa-window.xml'))
 
 def locate(key, attr='text', timeout=25, contains=False, class_name=None):
@@ -207,21 +212,34 @@ try:
     wait_palette(False)
     capture('07-chat-restored')
     passed('light mode restores after configuration change')
-    # Audio uses a 60-second generated PCM fixture, not a real microphone recording.
-    # Leave enough playback time for slow emulator accessibility snapshots.
-    tap_node(scroll_locate('播放语音', 'content-desc', direction='down'))
-    locate('暂停语音', 'content-desc')
-    tap('暂停语音', 'content-desc')
-    locate('继续播放语音', 'content-desc')
+    # UIAutomator cannot dump during continuous accessibility events from the
+    # player. Use the measured controls and check each state after pausing; a
+    # stale pre-play hierarchy is never accepted as evidence of playback.
+    play = scroll_locate('播放语音', 'content-desc', direction='down')
+    seek = locate('语音播放进度', 'content-desc')
+    tap_node(play)
+    time.sleep(4)
+    tap_node(play)
+    paused = locate('继续播放语音', 'content-desc')
     capture('08-audio-paused')
     passed('actual Android audio player starts and pauses')
-    tap('继续播放语音', 'content-desc')
-    locate('暂停语音', 'content-desc')
-    seek = locate('语音播放进度', 'content-desc')
+    tap_node(paused)
+    time.sleep(2)
     tap_node(seek)
+    time.sleep(2)
+    tap_node(play)
+    locate('继续播放语音', 'content-desc')
+    # The 60-second fixture sought to the centre should show at least 20s.
+    audio_tree = tree()
+    audio_cards = [n for n in audio_tree.iter('node') if '语音消息，轻触播放' in n.get('content-desc','')]
+    assert audio_cards, 'Audio card missing after seek'
+    labels = [n.get('text','') for n in audio_cards[0].iter('node')]
+    assert any(re.fullmatch(r'0:[2-5][0-9]', value) for value in labels), 'Seek did not update playback position: ' + repr(labels)
     capture('09-audio-progress')
-    passed('audio resumes and accepts seek control input')
-    # Real Activity stop: no automatic microphone/playback resume on returning.
+    passed('audio resumes and seeks to the middle of the 60-second fixture')
+    # Resume, then leave while playing: backgrounding must stop the player.
+    tap('继续播放语音', 'content-desc')
+    time.sleep(2)
     adb('shell','input','keyevent','3')
     time.sleep(1)
     adb('shell','am','start','-W','-n',PKG+'/com.lyrnox.qingliao.MainActivity')
