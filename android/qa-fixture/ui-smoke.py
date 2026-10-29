@@ -72,7 +72,13 @@ try:
     locate('消息内容','content-desc')
     locate('2 人在线', contains=True)
     capture('02-chat-light')
-    passed('session opens real native chat and WebSocket presence')
+    # A visible grouped-message avatar must keep its full 30dp height (CI density is 2).
+    avatars = [n for n in tree().iter('node') if n.get('content-desc') == '小简']
+    assert avatars, 'Peer avatar missing'
+    for n in avatars:
+        x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds')))
+        assert y2-y1 >= 58, f'Avatar clipped: {n.get("bounds")}'
+    passed('session opens real native chat and WebSocket presence; avatars are not clipped')
     tap('消息内容','content-desc')
     marker = 'native-ui-' + str(int(time.time()))
     adb('shell','input','text',marker)

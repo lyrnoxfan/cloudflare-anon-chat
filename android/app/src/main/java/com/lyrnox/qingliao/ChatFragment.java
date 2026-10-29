@@ -2025,6 +2025,8 @@ public final class ChatFragment extends Fragment {
       }
       LinearLayout messageRow = new LinearLayout(getActivity());
       messageRow.setOrientation(LinearLayout.HORIZONTAL);
+      // Baseline alignment overrides per-child bottom gravity and clips short avatar TextViews.
+      messageRow.setBaselineAligned(false);
       messageRow.setGravity(Gravity.TOP);
       messageRow.setPadding(dp(mine ? 42 : 4), 0, dp(4), 0);
       if (!mine) {
