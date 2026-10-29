@@ -95,7 +95,11 @@ try:
         if any(p.poll() is not None for p,f in processes): break
         time.sleep(1)
     if ready != expected:
-        raise RuntimeError('Three clients did not all reach media-ready: '+str(sorted(ready)))
+        # A participant may fail inside its Activity before publishing its final marker.
+        # Always snapshot the per-process, secret-free diagnostics and RTC counters in
+        # this branch too; otherwise the workflow records only the role names and loses
+        # the failure stage/status needed to distinguish an app bug from a harness issue.
+        timeout_error('Three clients did not all reach media-ready: '+str(sorted(ready)))
     screenshot=subprocess.check_output(['adb','-s','emulator-5556','exec-out','screencap','-p'],timeout=10)
     (out/'peer-activity-connected.png').write_bytes(screenshot)
     # Exercise a reproducible constrained path on all three emulators while the
