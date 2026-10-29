@@ -229,14 +229,40 @@ final class ChatNet implements Closeable {
     return u.toString();
   }
 
+  interface UploadProgress { void onProgress(long sent, long total); }
+
+  private static final class ProgressBody extends RequestBody {
+    private final File file;
+    private final MediaType type;
+    private final UploadProgress progress;
+    ProgressBody(File file, MediaType type, UploadProgress progress) {
+      this.file = file; this.type = type; this.progress = progress;
+    }
+    @Override public MediaType contentType() { return type; }
+    @Override public long contentLength() { return file.length(); }
+    @Override public void writeTo(okio.BufferedSink sink) throws IOException {
+      long total = contentLength(), sent = 0;
+      byte[] buffer = new byte[32 * 1024];
+      try (InputStream in = new FileInputStream(file)) {
+        if (progress != null) progress.onProgress(0, total);
+        int count;
+        while ((count = in.read(buffer)) != -1) {
+          sink.write(buffer, 0, count);
+          sent += count;
+          if (progress != null) progress.onProgress(sent, total);
+        }
+      }
+    }
+  }
+
+  Call uploadCall(String url, File file, String mime, UploadProgress progress) throws Exception {
+    Request r = new Request.Builder().url(allowed(url, true)).header("Origin", BASE)
+        .put(new ProgressBody(file, MediaType.get(mime), progress)).build();
+    return client.newCall(r);
+  }
+
   void put(String url, File file, String mime) throws Exception {
-    Request r =
-        new Request.Builder()
-            .url(allowed(url, true))
-            .header("Origin", BASE)
-            .put(RequestBody.create(file, MediaType.get(mime)))
-            .build();
-    try (Response result = client.newCall(r).execute()) {
+    try (Response result = uploadCall(url, file, mime, null).execute()) {
       if (!result.isSuccessful())
         throw new ApiError(result.code(), "文件上传失败（" + result.code() + "）");
     }

@@ -54,7 +54,7 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
    check(e.command({{"op","retry"},{"attempt",attempt}})["delay"]==expected[attempt]);
  }
  check(e.command({{"op","retry"},{"attempt",20}})["delay"]==30000);
- J u={{"op","upload"},{"size",100},{"mime","image/png"},{"filename","图.png"},{"clientId","id"}};check(e.command(u)["kind"]=="image");u["size"]=11*1024*1024;check(rejects(u));u["mime"]="application/octet-stream";check(e.command(u)["kind"]=="file");u["size"]=0;check(rejects(u));
+ J u={{"op","upload"},{"size",100},{"mime","image/png"},{"filename","图.png"},{"clientId","id"}};check(e.command(u)["kind"]=="image");u["size"]=10*1024*1024;u["mime"]="image/png; charset=binary";check(e.command(u)["kind"]=="image");u["size"]=10*1024*1024+1;check(rejects(u));u["mime"]="video/ogg";u["size"]=100*1024*1024;check(e.command(u)["kind"]=="video");u["size"]=101*1024*1024;check(rejects(u));u["mime"]="application/octet-stream";u["size"]=50*1024*1024;check(e.command(u)["kind"]=="file");u["mime"]="image/svg+xml";check(e.command(u)["kind"]=="file");u["mime"]="application/octet-stream";u["size"]=50*1024*1024+1;check(rejects(u));u["size"]=0;check(rejects(u));u["mime"]="audio/mp4";u["size"]=10*1024*1024;u["voice"]=true;check(e.command(u)["kind"]=="audio");u["size"]=10*1024*1024+1;check(rejects(u));
  e.command({{"op","reset"},{"room","1234567890"}});check(e.command({{"op","snapshot"}})["messages"].empty());
  check(ql::utf8(ql::utf16("中文😀\n"))=="中文😀\n");
  for(auto bad:std::vector<std::string>{std::string("\xc0\x80",2),std::string("\xed\xa0\x80",3),std::string("\xf4\x90\x80\x80",4),std::string("\xf0",1)}){bool failed=false;try{ql::utf16(bad);}catch(...){failed=true;}check(failed);}

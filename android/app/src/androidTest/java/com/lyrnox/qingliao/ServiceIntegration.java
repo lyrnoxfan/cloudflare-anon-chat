@@ -129,10 +129,21 @@ final class ServiceIntegration {
                       "validation.png",
                       "clientId",
                       UUID.randomUUID().toString()));
-          a.put(grant.getString("url"), image, "image/png");
+          java.util.concurrent.atomic.AtomicLong uploadedBytes = new java.util.concurrent.atomic.AtomicLong();
+          Call upload = a.uploadCall(grant.getString("url"), image, "image/png",
+              (sent, total) -> uploadedBytes.accumulateAndGet(sent, Math::max));
+          try (Response response = upload.execute()) {
+            if (!response.isSuccessful()) throw new IOException("image upload failed: " + response.code());
+          }
+          if (uploadedBytes.get() != image.length()) throw new AssertionError("upload progress did not reach file size");
+          checks++;
           JSONObject media =
               a.api(path + "confirm-upload/" + grant.getString("id"), new JSONObject())
                   .getJSONObject("message");
+          JSONObject repeatedConfirmation = a.api(path + "confirm-upload/" + grant.getString("id"), new JSONObject())
+              .getJSONObject("message");
+          if (!media.getString("id").equals(repeatedConfirmation.getString("id")))
+            throw new AssertionError("upload confirmation retry was not idempotent");
           checks++;
           File copy = b.download(path + "download/" + media.getString("id"), 1024 * 1024);
           try {
@@ -146,6 +157,13 @@ final class ServiceIntegration {
           }
           a.api(path + "delete/" + media.getString("id"), new JSONObject());
           checks++;
+          JSONObject abandoned = a.api(path + "upload", core.run("upload", "size", image.length(),
+              "mime", "image/png", "filename", "cancelled.png", "clientId", UUID.randomUUID().toString()));
+          a.api(path + "cancel-upload/" + abandoned.getString("id"), new JSONObject());
+          try {
+            a.api(path + "confirm-upload/" + abandoned.getString("id"), new JSONObject());
+            throw new AssertionError("cancelled upload was confirmed");
+          } catch (ChatNet.ApiError e) { if (e.status != 410) throw e; checks++; }
         } finally {
           image.delete();
         }

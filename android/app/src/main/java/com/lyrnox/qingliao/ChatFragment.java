@@ -67,12 +67,33 @@ public final class ChatFragment extends Fragment {
   private ListView list;
   private LinearLayout emptyState;
   private TextView heading, subtitle, identityBadge, onlineDot, statusView, recordView, callLabel;
+  private LinearLayout uploadPanel;
+  private TextView uploadLabel;
+  private ProgressBar uploadProgress;
+  private Button uploadRetry, uploadCancel;
+  private UploadJob uploadJob;
   private LinearLayout callPanel, callButtons;
   private LinearLayout callVideoContainer;
   private GridLayout callVideoGrid;
   private SurfaceViewRenderer localRenderer;
   private FrameLayout localVideoCell;
   private VideoTrack localVideoTrack;
+  private static final class UploadJob {
+    final File file;
+    final String name, mime, room, clientId;
+    final boolean voice;
+    final double duration;
+    final int generation;
+    volatile boolean cancelled, confirming, uploaded, running;
+    volatile int progressPermille;
+    volatile Call activeCall;
+    volatile String grantId, uploadUrl, acceptedMime;
+    UploadJob(File file, String name, String mime, String room, String clientId,
+        boolean voice, double duration, int generation) {
+      this.file=file; this.name=name; this.mime=mime; this.room=room; this.clientId=clientId;
+      this.voice=voice; this.duration=duration; this.generation=generation;
+    }
+  }
   private static final class RemoteRendererBinding {
     final SurfaceViewRenderer renderer;
     final FrameLayout cell;
@@ -589,6 +610,37 @@ public final class ChatFragment extends Fragment {
     LinearLayout.LayoutParams replyParams = new LinearLayout.LayoutParams(-1, -2);
     replyParams.setMargins(dp(12), dp(3), dp(12), 0);
     content.addView(replyDraft, replyParams);
+    uploadPanel = vertical();
+    uploadPanel.setPadding(dp(14), dp(8), dp(14), dp(8));
+    uploadPanel.setBackground(shape(pale, 16));
+    uploadPanel.setVisibility(View.GONE);
+    uploadLabel = text("", 12, ink);
+    uploadPanel.addView(uploadLabel, new LinearLayout.LayoutParams(-1, -2));
+    uploadProgress = new ProgressBar(getActivity(), null, android.R.attr.progressBarStyleHorizontal);
+    uploadProgress.setMax(1000);
+    LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(-1, dp(5));
+    progressParams.topMargin = dp(6);
+    uploadPanel.addView(uploadProgress, progressParams);
+    LinearLayout uploadActions = new LinearLayout(getActivity());
+    uploadActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+    uploadRetry = button("重试", v -> { if (uploadJob != null) runUpload(uploadJob); });
+    uploadCancel = button("取消上传", v -> cancelUpload());
+    uploadActions.addView(uploadRetry);
+    uploadActions.addView(uploadCancel);
+    uploadPanel.addView(uploadActions);
+    LinearLayout.LayoutParams uploadParams = new LinearLayout.LayoutParams(-1, -2);
+    uploadParams.setMargins(dp(12), dp(2), dp(12), dp(2));
+    content.addView(uploadPanel, uploadParams);
+    if (uploadJob != null) {
+      uploadPanel.setVisibility(View.VISIBLE);
+      uploadProgress.setProgress(uploadJob.progressPermille);
+      uploadLabel.setText(uploadJob.confirming ? "正在确认并保存文件…"
+          : uploadJob.cancelled ? "正在取消上传…"
+          : uploadJob.running ? uploadJob.name + " · " + (uploadJob.progressPermille / 10) + "%"
+          : uploadJob.name + " · 上传失败，可重试或取消");
+      uploadRetry.setVisibility(uploadJob.running || uploadJob.cancelled ? View.GONE : View.VISIBLE);
+      uploadCancel.setEnabled(!uploadJob.confirming && !uploadJob.cancelled);
+    }
     LinearLayout composer = new LinearLayout(getActivity());
     composer.setGravity(Gravity.CENTER_VERTICAL);
     // Match the website mobile composer-wrap inset and safe-area breathing room.
@@ -1817,8 +1869,8 @@ public final class ChatFragment extends Fragment {
 
   private void switchRoom(String rid) {
     closeRoomDrawer();
-    if (busy) {
-      toast("请等待当前发送结束");
+    if (busy || uploadJob != null) {
+      toast("请先完成或取消当前上传");
       return;
     }
     try {
@@ -2564,6 +2616,7 @@ public final class ChatFragment extends Fragment {
 
   private void pickFile() {
     if (busy || session == null) return;
+    if (uploadJob != null) { toast("请先重试或取消当前上传"); return; }
     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.addCategory(Intent.CATEGORY_OPENABLE);
     i.setType("*/*");
@@ -2625,6 +2678,11 @@ public final class ChatFragment extends Fragment {
             } finally {
               if (!ok) f.delete();
             }
+            long cap = uploadLimit(mime, voice);
+            if (f.length() <= 0 || f.length() > cap) {
+              f.delete();
+              throw new IOException("文件为空或超过 " + android.text.format.Formatter.formatShortFileSize(ctx, cap) + " 的限制");
+            }
             return new Object[] {f, name, mime};
           },
           value -> {
@@ -2637,6 +2695,141 @@ public final class ChatFragment extends Fragment {
             confirmAttachment((File) v[0], (String) v[1], (String) v[2], false, 0, rid, g);
           });
     }
+  }
+
+  private long uploadLimit(String mime, boolean voice) {
+    String base = mime == null ? "application/octet-stream" : mime.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+    if (voice || base.equals("image/png") || base.equals("image/jpeg") || base.equals("image/gif") || base.equals("image/webp"))
+      return 10L * 1024 * 1024;
+    if (base.equals("video/mp4") || base.equals("video/webm") || base.equals("video/ogg") || base.equals("video/quicktime"))
+      return 100L * 1024 * 1024;
+    return 50L * 1024 * 1024;
+  }
+
+  private void cancelUpload() {
+    UploadJob job = uploadJob;
+    if (job == null) return;
+    if (job.confirming) { toast("文件正在确认保存，暂时不能取消"); return; }
+    job.cancelled = true;
+    Call call = job.activeCall;
+    if (call != null) call.cancel();
+    uploadCancel.setEnabled(false);
+    uploadRetry.setVisibility(View.GONE);
+    uploadLabel.setText("正在取消上传…");
+    if (!job.running) {
+      job.running = true;
+      io.execute(() -> finishUploadCancellation(job));
+    }
+  }
+
+  private void finishUploadCancellation(UploadJob job) {
+    if (job.grantId != null && net != null) {
+      try { net.api("/api/r/" + job.room + "/cancel-upload/" + job.grantId, new JSONObject()); }
+      catch (Exception ignored) {}
+    }
+    job.running = false;
+    main.post(() -> {
+      if (uploadJob != job) return;
+      uploadJob = null;
+      busy = false;
+      job.file.delete();
+      uploadPanel.setVisibility(View.GONE);
+      setStatus("上传已取消");
+    });
+  }
+
+  private void runUpload(UploadJob job) {
+    if (uploadJob != job || job.cancelled || job.running || net == null) return;
+    uploadRetry.setVisibility(View.GONE);
+    uploadCancel.setEnabled(!job.confirming);
+    busy = true;
+    job.running = true;
+    io.execute(() -> {
+      try {
+        String path = "/api/r/" + job.room + "/";
+        if (job.grantId == null) {
+          JSONObject payload = core.run("upload", "size", job.file.length(), "mime", job.mime,
+              "filename", job.name, "clientId", job.clientId, "voice", job.voice,
+              "duration", job.duration);
+          JSONObject grant = net.api(path + "upload", payload);
+          job.grantId = grant.getString("id");
+          job.uploadUrl = grant.getString("url");
+          job.acceptedMime = grant.getString("mime");
+        }
+        if (job.cancelled) throw new IOException("上传已取消");
+        if (!job.uploaded) {
+        Call call = net.uploadCall(job.uploadUrl, job.file, job.acceptedMime, (sent, total) -> {
+          int progress = total <= 0 ? 0 : (int) Math.min(1000, sent * 1000 / total);
+          job.progressPermille = progress;
+          if (sent != total && sent % (512 * 1024) >= 32 * 1024) return;
+          main.post(() -> {
+            if (uploadJob == job && uploadProgress != null) {
+              uploadProgress.setProgress(progress);
+              uploadLabel.setText(job.name + " · " + (progress / 10) + "%");
+            }
+          });
+        });
+        job.activeCall = call;
+        if (job.cancelled) call.cancel();
+        try (Response response = call.execute()) {
+          if (!response.isSuccessful()) throw new ChatNet.ApiError(response.code(), "文件上传失败（" + response.code() + "）");
+        } finally { job.activeCall = null; }
+        if (job.cancelled) throw new IOException("上传已取消");
+        job.uploaded = true;
+        }
+        if (job.cancelled) throw new IOException("上传已取消");
+        job.confirming = true;
+        main.post(() -> {
+          if (uploadJob == job) {
+            uploadLabel.setText("正在确认并保存文件…");
+            uploadCancel.setEnabled(false);
+          }
+        });
+        JSONObject result = net.api(path + "confirm-upload/" + job.grantId, new JSONObject());
+        job.running = false;
+        main.post(() -> {
+          if (uploadJob != job) return;
+          uploadJob = null;
+          busy = false;
+          job.file.delete();
+          uploadPanel.setVisibility(View.GONE);
+          if (job.generation != generation) return;
+          try {
+            core.run("event", "event", new JSONObject().put("type", "message")
+                .put("message", result.getJSONObject("message")));
+            setStatus("已发送");
+            refreshSnapshot(true);
+            scrollToLatestMessage();
+          } catch (Exception e) { error(e); }
+        });
+      } catch (Exception e) {
+        job.running = false;
+        if (job.cancelled) {
+          if (job.grantId != null && net != null) {
+            try { net.api("/api/r/" + job.room + "/cancel-upload/" + job.grantId, new JSONObject()); }
+            catch (Exception ignored) {}
+          }
+          main.post(() -> {
+            if (uploadJob != job) return;
+            uploadJob = null;
+            busy = false;
+            job.file.delete();
+            uploadPanel.setVisibility(View.GONE);
+            setStatus("上传已取消");
+          });
+          return;
+        }
+        main.post(() -> {
+          if (uploadJob != job) return;
+          busy = false;
+          uploadRetry.setVisibility(View.VISIBLE);
+          uploadLabel.setText(job.name + " · " + (e.getMessage() == null ? "上传失败" : e.getMessage()));
+          uploadCancel.setEnabled(!job.confirming);
+          setStatus(job.confirming ? "确认结果未返回，可重试确认" : "上传失败，可重试或取消");
+          if (e instanceof ChatNet.ApiError && (((ChatNet.ApiError) e).status == 401 || ((ChatNet.ApiError) e).status == 403)) error(e);
+        });
+      }
+    });
   }
 
   private void confirmAttachment(
@@ -2663,46 +2856,15 @@ public final class ChatFragment extends Fragment {
               submitted[0] = true;
               stopPlayer();
               setStatus("正在上传…");
-              task(
-                  () -> {
-                    try {
-                      JSONObject payload =
-                          core.run(
-                              "upload",
-                              "size",
-                              f.length(),
-                              "mime",
-                              mime,
-                              "filename",
-                              name,
-                              "clientId",
-                              UUID.randomUUID().toString(),
-                              "voice",
-                              voice,
-                              "duration",
-                              duration);
-                      String path = "/api/r/" + rid + "/";
-                      JSONObject grant = net.api(path + "upload", payload);
-                      net.put(grant.getString("url"), f, mime);
-                      return net.api(
-                          path + "confirm-upload/" + grant.getString("id"), new JSONObject());
-                    } finally {
-                      f.delete();
-                    }
-                  },
-                  v -> {
-                    busy = false;
-                    if (g != generation) return;
-                    core.run(
-                        "event",
-                        "event",
-                        new JSONObject()
-                            .put("type", "message")
-                            .put("message", ((JSONObject) v).getJSONObject("message")));
-                    setStatus("已发送");
-                    refreshSnapshot(true);
-                    scrollToLatestMessage();
-                  });
+              UploadJob job = new UploadJob(f, name, mime, rid, UUID.randomUUID().toString(), voice, duration, g);
+              uploadJob = job;
+              busy = true;
+              uploadPanel.setVisibility(View.VISIBLE);
+              uploadLabel.setText(name + " · 准备上传");
+              uploadProgress.setProgress(0);
+              uploadRetry.setVisibility(View.GONE);
+              uploadCancel.setEnabled(true);
+              runUpload(job);
             })
         ;
     if (voice) builder.setNeutralButton("试听", null);
