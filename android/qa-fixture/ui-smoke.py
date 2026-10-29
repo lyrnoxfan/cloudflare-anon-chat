@@ -212,29 +212,38 @@ try:
     wait_palette(False)
     capture('07-chat-restored')
     passed('light mode restores after configuration change')
-    # UIAutomator cannot dump during continuous accessibility events from the
-    # player. Use the measured controls and check each state after pausing; a
-    # stale pre-play hierarchy is never accepted as evidence of playback.
-    play = scroll_locate('播放语音', 'content-desc', direction='down')
-    seek = locate('语音播放进度', 'content-desc')
-    tap_node(play)
-    time.sleep(4)
-    tap_node(play)
+    # Observe live state using fresh UI nodes: UIAutomator requires an idle
+    # window, so the app leaves >1s between progress updates. Never use the
+    # pre-download control's possibly stale coordinates after layout changes.
+    def audio_elapsed(snapshot):
+        cards = [n for n in snapshot.iter('node') if '语音消息，轻触播放' in n.get('content-desc','')]
+        assert cards, 'Audio card missing from fresh hierarchy'
+        clocks = [n.get('text','') for n in cards[0].iter('node') if re.fullmatch(r'\d+:\d\d', n.get('text',''))]
+        assert len(clocks) == 1, 'Audio elapsed clock missing or ambiguous: ' + repr(clocks)
+        m, sec = map(int, clocks[0].split(':'))
+        return m * 60 + sec
+    tap_node(scroll_locate('播放语音', 'content-desc', direction='down'))
+    locate('暂停语音', 'content-desc', timeout=35)
+    before = audio_elapsed(tree())
+    time.sleep(3)
+    after = audio_elapsed(tree())
+    assert after > before, f'Audio clock did not advance while playing: {before} -> {after}'
+    tap('暂停语音', 'content-desc')
     paused = locate('继续播放语音', 'content-desc')
-    capture('08-audio-paused')
-    passed('actual Android audio player starts and pauses')
-    tap_node(paused)
+    paused_at = audio_elapsed(tree())
     time.sleep(2)
+    assert audio_elapsed(tree()) == paused_at, 'Audio clock advanced while paused'
+    capture('08-audio-paused')
+    passed('actual Android audio clock advances while playing and remains still after pause')
+    tap_node(paused)
+    locate('暂停语音', 'content-desc')
+    seek = locate('语音播放进度', 'content-desc')
     tap_node(seek)
     time.sleep(2)
-    tap_node(play)
+    tap('暂停语音', 'content-desc')
     locate('继续播放语音', 'content-desc')
-    # The 60-second fixture sought to the centre should show at least 20s.
-    audio_tree = tree()
-    audio_cards = [n for n in audio_tree.iter('node') if '语音消息，轻触播放' in n.get('content-desc','')]
-    assert audio_cards, 'Audio card missing after seek'
-    labels = [n.get('text','') for n in audio_cards[0].iter('node')]
-    assert any(re.fullmatch(r'0:[2-5][0-9]', value) for value in labels), 'Seek did not update playback position: ' + repr(labels)
+    position = audio_elapsed(tree())
+    assert 20 <= position < 60, f'Seek did not move the 60-second fixture to its middle: {position}s'
     capture('09-audio-progress')
     passed('audio resumes and seeks to the middle of the 60-second fixture')
     # Resume, then leave while playing: backgrounding must stop the player.

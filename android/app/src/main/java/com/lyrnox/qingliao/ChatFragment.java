@@ -2769,12 +2769,14 @@ public final class ChatFragment extends Fragment {
       if (activeAudio == playback && player != null) {
         if (player.isPlaying()) {
           player.pause(); playback.toggle.setText("▶"); playback.toggle.setContentDescription("继续播放语音");
+          setStatus("语音已暂停");
           if (mediaFocus != null) mediaFocus.release();
         }
         else {
           if (player.getCurrentPosition() >= playback.seek.getMax()) player.seekTo(0);
           try { acquireMediaFocus(); } catch (IOException e) { toast(e.getMessage()); return; }
-          player.start(); playback.toggle.setText("Ⅱ"); playback.toggle.setContentDescription("暂停语音"); scheduleAudioProgress(playback);
+          player.start(); playback.toggle.setText("Ⅱ"); playback.toggle.setContentDescription("暂停语音");
+          setStatus("语音正在播放"); scheduleAudioProgress(playback);
         }
       } else startInlineAudio(playback);
       return;
@@ -2839,6 +2841,7 @@ public final class ChatFragment extends Fragment {
         playback.toggle.setText("Ⅱ");
         playback.toggle.setContentDescription("暂停语音");
         mp.start();
+        setStatus("语音正在播放");
         scheduleAudioProgress(playback);
       });
       prepared.setOnCompletionListener(mp -> {
@@ -2849,6 +2852,7 @@ public final class ChatFragment extends Fragment {
         playback.clock.setText(durationLabel(playback.seek.getMax()));
         playback.toggle.setText("▶");
         playback.toggle.setContentDescription("重播语音");
+        setStatus("语音播放结束");
         if (mediaFocus != null) mediaFocus.release();
       });
       prepared.setOnErrorListener((mp, what, extra) -> {
@@ -2875,8 +2879,8 @@ public final class ChatFragment extends Fragment {
           int position = player.getCurrentPosition();
           playback.seek.setProgress(position);
           playback.clock.setText(durationLabel(position));
-          // A 1-second clock update keeps accessibility services able to observe an idle UI.
-          main.postDelayed(this, 1000);
+          // Leave a quiet interval longer than Android accessibility's 1-second idle window.
+          main.postDelayed(this, 1500);
         }
       }
     };
