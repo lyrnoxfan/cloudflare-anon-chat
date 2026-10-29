@@ -8,6 +8,7 @@ import org.json.*;
 public final class NativeInstrumentation extends Instrumentation {
   int checks;
   boolean network;
+  boolean mediaLifecycle;
 
   void check(boolean ok, String name) {
     if (!ok) throw new AssertionError(name);
@@ -18,13 +19,20 @@ public final class NativeInstrumentation extends Instrumentation {
   public void onCreate(Bundle args) {
     super.onCreate(args);
     network = args != null && "true".equals(args.getString("network"));
+    mediaLifecycle = args != null && "true".equals(args.getString("mediaLifecycle"));
     start();
   }
 
   @Override
   public void onStart() {
     Bundle result = new Bundle();
-    try (NativeCore core = new NativeCore()) {
+    try {
+      if (mediaLifecycle) {
+        result.putString("stream", MediaLifecycleChecks.run(this));
+        finish(-1, result);
+        return;
+      }
+      try (NativeCore core = new NativeCore()) {
       check(core.run("reset", "room", "lobby").getString("room").equals("lobby"), "reset");
       check("回复 小青：你好\n".equals(ReplyDraft.prefix(" 小青 ", "你好")), "reply header matches web contract");
       String quoted160 = new String(new char[161]).replace("\0", "字");
@@ -238,6 +246,7 @@ public final class NativeInstrumentation extends Instrumentation {
               : "Network exercise not requested.\n";
       result.putString("stream", checks + " Android JNI assertions passed\n" + service);
       finish(-1, result);
+      }
     } catch (Throwable e) {
       result.putString("stream", "FAILED " + e.toString() + "\n");
       finish(0, result);

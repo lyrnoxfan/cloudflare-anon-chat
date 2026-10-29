@@ -1,4 +1,1 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <instrumentation android:name="com.lyrnox.qingliao.MediaLifecycleInstrumentation"
-      android:targetPackage="com.lyrnox.qingliao.qa" android:functionalTest="true" />
-</manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
