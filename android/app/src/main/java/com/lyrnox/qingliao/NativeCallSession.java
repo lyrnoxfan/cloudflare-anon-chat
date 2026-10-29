@@ -119,11 +119,11 @@ final class NativeCallSession {
   }
 
   private void publish(JSONArray rawIceServers) throws Exception {
+    egl = EglBase.create();
     initializeFactory();
     if (iceServers.isEmpty()) iceServers = parseIceServers(rawIceServers);
     if (iceServers.isEmpty()) throw new IOException("通话服务没有提供 ICE 服务器");
-    egl = EglBase.create();
-    peer = factory.createPeerConnection(iceServers, new NoopObserver());
+    peer = factory.createPeerConnection(rtcConfiguration(), new NoopObserver());
     if (peer == null) throw new IOException("无法建立 WebRTC 连接");
 
     MediaConstraints audioConstraints = new MediaConstraints();
@@ -195,8 +195,20 @@ final class NativeCallSession {
         initialized = true;
       }
     }
-    factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
+    // A camera track alone does not install Android video codecs. Both publisher
+    // encoding and subscriber decoding need explicit factories sharing our EGL context.
+    factory = PeerConnectionFactory.builder()
+        .setVideoEncoderFactory(new DefaultVideoEncoderFactory(egl.getEglBaseContext(), true, true))
+        .setVideoDecoderFactory(new DefaultVideoDecoderFactory(egl.getEglBaseContext()))
+        .createPeerConnectionFactory();
     if (factory == null) throw new IllegalStateException("无法初始化 WebRTC 媒体引擎");
+  }
+
+  private PeerConnection.RTCConfiguration rtcConfiguration() {
+    PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(iceServers);
+    configuration.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+    configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+    return configuration;
   }
 
   private List<PeerConnection.IceServer> parseIceServers(JSONArray servers) throws Exception {
@@ -319,7 +331,7 @@ final class NativeCallSession {
   private void negotiateSubscription(String offerSdp) throws Exception {
     checkStopped();
     if (subscriberPeer == null) {
-      subscriberPeer = factory.createPeerConnection(iceServers, new RemoteObserver());
+      subscriberPeer = factory.createPeerConnection(rtcConfiguration(), new RemoteObserver());
       if (subscriberPeer == null) throw new IOException("无法建立远端媒体接收连接");
     }
     awaitSdp((observer, ignored) -> subscriberPeer.setRemoteDescription(observer,

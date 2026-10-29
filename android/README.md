@@ -1,6 +1,6 @@
-# 轻聊 Android 0.2.4
+# 轻聊 Android 0.2.5
 
-轻聊的原生 Android 客户端，直接调用仓库中的 Cloudflare 聊天服务；不是 WebView 包壳。此版在网页已有聊天行为上补齐系统深色配色和聊天消息内的视频播放器，并保留 Android 原生导航、输入、媒体权限和系统文件流。它不声称与网页逐像素一致，完整对照和未验收项见 [G29 parity / validation](G29-PARITY.md)。
+轻聊的原生 Android 客户端，直接调用仓库中的 Cloudflare 聊天服务；不是 WebView 包壳。此版补齐原生导航图标、头像布局、消息发送后的可见性、返回行为及通话授权续期，并提供 Activity、本地真实服务和双原生 SFU 的集中验收流程，并保留 Android 原生导航、输入、媒体权限和系统文件流。它不声称与网页逐像素一致，完整对照和未验收项见 [G29 parity / validation](G29-PARITY.md)。
 
 ## 架构
 
@@ -33,7 +33,7 @@
 ```sh
 cd android
 # 设置 ANDROID_HOME；按需创建不提交的 local.properties
-./gradlew assembleDebug assembleDebugAndroidTest lintDebug
+./gradlew assembleDebug assembleQa assembleQaAndroidTest lintDebug lintQa
 ```
 
 宿主 C++ 测试：
@@ -52,3 +52,10 @@ ctest --test-dir .native-tests --output-on-failure
 - 媒体解码依设备支持；编码不支持时可保存源文件。Android 端先安全取得授权媒体再在本机解码，尚未验证与网页浏览器的视频播放在流式/弱网/编码边界上的等价性。
 - 无后台推送、离线数据库或离线发送队列；应用离开前台后断开实时连接，返回时补取历史。
 - 没有 32 位 ABI。公开视频素材许可仍须在公开分发前核实，见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+
+## 0.2.5 集中验收入口
+
+- GitHub Actions `android.yml`：构建正常 Debug、回环 QA 和 instrumentation APK，运行 lint、C++ sanitizer、真实 Android 10（API 29）Activity/媒体/主题检查，再用原生客户端连接本地真实 Worker/D1/R2/DO。
+- `android-sfu.yml`：仅手动触发，使用 `-PqaSfu` 将隔离 QA 包连接已经授权的 `blue-room-test`；两个新模拟端检查音频 RTP、解码视频、静音/摄像头状态与退出。不是物理手机或主观音质验收。
+- 默认 `.qa` 包只连接 `127.0.0.1:8000`，不是正常安装使用的包。正常使用选择 Debug APK；两者都是测试签名，不是 Release。
+- 工作流存在不代表测试通过。确切冻结提交、运行号、截图及限制以随交付的 `ACCEPTANCE-0.2.5.md` 为准。`VALIDATION.md` 和对照表保留了旧版历史，不能把旧版检查计入新版。

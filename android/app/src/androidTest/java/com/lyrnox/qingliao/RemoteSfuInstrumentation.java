@@ -75,7 +75,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         Thread.sleep(1500);
       }
       if(frames.get()<10 || audioPackets<=10 || videoBytes<=0)
-        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; lastStatus="+status.get());
+        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
       if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
       if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
       if(call.toggleCamera()) throw new AssertionError("Camera disable failed");
@@ -93,20 +93,29 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     } finally { if(call!=null) call.stop(); }
   }
   private static JSONObject stats(NativeCallSession call) throws Exception {
-    Field field=NativeCallSession.class.getDeclaredField("subscriberPeer"); field.setAccessible(true);
+    return stats(call, "subscriberPeer");
+  }
+  private static JSONObject stats(NativeCallSession call, String fieldName) throws Exception {
+    Field field=NativeCallSession.class.getDeclaredField(fieldName); field.setAccessible(true);
     PeerConnection peer=(PeerConnection)field.get(call);
     JSONObject out=new JSONObject(); if(peer==null) return out;
     CountDownLatch done=new CountDownLatch(1);
     peer.getStats(report -> {
-      long audio=0,video=0;
+      long audio=0,video=0,outAudio=0,outVideo=0;
       for(RTCStats stat:report.getStatsMap().values()) {
-        if(!"inbound-rtp".equals(stat.getType())) continue;
+        if(!"inbound-rtp".equals(stat.getType()) && !"outbound-rtp".equals(stat.getType())) continue;
         Object kind=stat.getMembers().get("kind"); if(kind==null) kind=stat.getMembers().get("mediaType");
+        if ("outbound-rtp".equals(stat.getType())) {
+          Object sent=stat.getMembers().get("bytesSent");
+          if (sent instanceof Number && "audio".equals(kind)) outAudio+=((Number)sent).longValue();
+          if (sent instanceof Number && "video".equals(kind)) outVideo+=((Number)sent).longValue();
+          continue;
+        }
         Object n=stat.getMembers().get("packetsReceived"), bytes=stat.getMembers().get("bytesReceived");
         if("audio".equals(kind) && n instanceof Number) audio+=((Number)n).longValue();
         if("video".equals(kind) && bytes instanceof Number) video+=((Number)bytes).longValue();
       }
-      try { out.put("audioPackets",audio).put("videoBytes",video); } catch(Exception ignored) {}
+      try { out.put("audioPackets",audio).put("videoBytes",video).put("sentAudioBytes",outAudio).put("sentVideoBytes",outVideo); } catch(Exception ignored) {}
       done.countDown();
     });
     if(!done.await(5,TimeUnit.SECONDS)) throw new AssertionError("RTCStats timeout");

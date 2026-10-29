@@ -1,5 +1,7 @@
 # Android / 网页实现对照与集中验收
 
+> 以下 0.2.4 对照与验收记录是历史，不是当前 0.2.5 的状态。0.2.5 已加入可运行的 Activity、真实本地 Worker 和双原生 SFU 验收工作流；最终结论请读本次交付的 `ACCEPTANCE-0.2.5.md`，不把历史失败或旧版通过当作当前结果。
+
 此文件描述本次冻结版本 `0.2.4` 的代码覆盖及实际测试边界。网页端为仓库 `public/index.html`, `public/style.css`, `public/app.js`, `public/call.js`；Android 为 `app/src/main/java/com/lyrnox/qingliao/`。原生 UI 不承载网页 DOM，因此“对齐”指主要交互和视觉语言的原生实现，不是逐像素相同。
 
 ## 对照结果

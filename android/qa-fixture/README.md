@@ -20,7 +20,7 @@ Do not point the production/debug app at this fixture or use it to test producti
 ## Consolidated CI acceptance (0.2.5)
 
 The manually dispatched `android.yml` now builds Debug + QA + AndroidTest from one frozen
-commit, then uses a new ephemeral KVM Android 9 emulator. `ui-smoke.py` opens the actual
+commit, then uses a new ephemeral KVM Android 10 (API 29) emulator. `ui-smoke.py` opens the actual
 Activity, enters a nickname and text, checks reply/delete, drawer and emoji controls,
 and captures light/dark screenshots and UIAutomator trees. This is a real Android UI
 exercise against the fixture, not a JNI-only test and not a pixel-parity assertion.
