@@ -61,9 +61,11 @@ def wait_palette(dark):
     while time.monotonic() < deadline:
         raw = adb('exec-out', 'screencap')
         width, height, fmt = struct.unpack_from('<III', raw)
-        # Android API 29 raw screenshot header is 12 bytes, RGBA_8888.
-        if fmt == 1 and len(raw) == 12 + width * height * 4:
-            rgb = raw[12 + (200 * width + 3) * 4:12 + (200 * width + 3) * 4 + 3]
+        # Android releases use a 12-byte header or add a 4-byte color-space field.
+        header = len(raw) - width * height * 4
+        if fmt == 1 and header in (12, 16):
+            offset = header + (200 * width + 3) * 4
+            rgb = raw[offset:offset + 3]
             if (max(rgb) < 100) if dark else (min(rgb) > 200):
                 return
         time.sleep(0.5)
