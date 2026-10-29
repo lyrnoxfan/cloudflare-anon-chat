@@ -1244,7 +1244,9 @@ public final class ChatFragment extends Fragment {
       observedCallStartedAt = call == null ? 0L : call.optLong("created", System.currentTimeMillis());
     observedCall = call;
     main.removeCallbacks(callClock);
-    if (call != null) main.postDelayed(callClock, 1000);
+    // Incoming invitations do not display elapsed time. Re-rendering that card every
+    // second needlessly invalidates the accessibility tree while the user is deciding.
+    if (call != null && nativeCall != null) main.postDelayed(callClock, 1000);
     if (call == null || session == null) {
       renderCallPanel();
       return;
