@@ -347,11 +347,13 @@ try:
     # not a real SFU/media call. Existing cc2810b SFU evidence is not counted for this source.
     request=urllib.request.Request('http://127.0.0.1:8000/qa/incoming',data=b'{}',method='POST')
     with urllib.request.urlopen(request) as response: assert response.status == 200
-    locate('接听'); locate('拒绝')
+    # The native controls are icon-only, so their stable accessible names—not
+    # the former visible text labels—are the user-facing action contract.
+    locate('接听来电', 'content-desc'); locate('拒绝', 'content-desc')
     capture('11-incoming-invitation')
-    tap('拒绝')
+    tap('拒绝', 'content-desc')
     time.sleep(2)
-    assert not any(n.get('text') == '接听' for n in tree().iter('node'))
+    assert not any(n.get('content-desc') in ('接听来电', '加入通话') for n in tree().iter('node'))
     passed('foreground incoming invitation and decline operate through actual Activity and fixture API')
     (OUT / 'ui-result.json').write_text(json.dumps({'passed':True,'checks':checks},ensure_ascii=False,indent=2))
 except Exception as e:

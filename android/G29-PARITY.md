@@ -103,3 +103,10 @@ Cloudflare Worker、Durable Objects、D1、R2 的生产部署及配置均不在�
 实现性差异已修复：网页录音允许最多两小时且服务端音频大小上限为 10 MiB；Android 之前仅允许两分钟且 9 MiB。现在使用 `MediaFiles.MAX_VOICE_DURATION_MS` 与 `MAX_VOICE_BYTES` 并新增两项 Android instrumentation 配置断言。该常量检查不是麦克风实测，修改后仍必须在最终固定 SHA 的唯一整体验收中确认构建与 Android 检查。
 
 结论：源码静态映射覆盖网页单页中的主要可见页面状态和可操作控件；仍未证明逐像素视觉对齐、网页登录后的线上端到端完整流程、真实设备媒体/音频路由、真实断网/后台恢复。只读线上首页不等于这些场景已验收。SFU 仅允许通过 `cloudflare-sfu-isolated` 环境指向已确认隔离的 HTTPS 测试目标；不得改用生产环境。
+
+
+## Current follow-up — CI accessibility locator (2026-10-30)
+
+- The Activity fixture for an incoming call was still searching for visible text `接听` / `拒绝`, while the shipped native call controls are intentionally icon-only and expose the accessible names `接听来电` / `拒绝`. The latest Activity run therefore stopped at the fixture locator before exercising the invitation actions; this was a stale test selector, not evidence that the incoming-call UI was absent.
+- Updated `android/qa-fixture/ui-smoke.py` to locate and tap the stable content descriptions, then assert the call invitation disappears after decline. This fixes only the test harness; it does not change call behavior. The corrected selector and the full frozen-SHA acceptance still require one CI run.
+- Android emulator/Activity checks can verify the UI/signalling fixture only. There is still no isolated SFU target or real handset in this environment, so genuine two-way SFU media, device microphone/camera/audio routing, production web end-to-end and actual network-loss recovery remain unverified.
