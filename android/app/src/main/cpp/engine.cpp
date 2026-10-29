@@ -170,6 +170,12 @@ J Engine::command(const J& in){auto op=in.at("op").get<std::string>();
    callPhase = "ready";
    return {{"phase", callPhase}, {"id", callId}};
  }
+ if (op == "call_subscriber_reset") {
+   if (callPhase != "ready" && callPhase != "subscribed" && callPhase != "answered" && callPhase != "subscribing")
+     throw std::runtime_error("当前状态不能重建媒体接收连接");
+   callPhase = "ready";
+   return {{"phase", callPhase}, {"id", callId}};
+ }
  if (op == "call_subscribed") {
    if (callPhase != "ready" && callPhase != "answered" &&
        callPhase != "subscribing")

@@ -75,7 +75,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         Thread.sleep(1500);
       }
       if(frames.get()<10 || audioPackets<=10 || videoBytes<=0)
-        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
+        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
       if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
       if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
       if(call.toggleCamera()) throw new AssertionError("Camera disable failed");
@@ -105,6 +105,7 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
     Field field=NativeCallSession.class.getDeclaredField(fieldName); field.setAccessible(true);
     PeerConnection peer=(PeerConnection)field.get(call);
     JSONObject out=new JSONObject(); if(peer==null) return out;
+    out.put("connectionState",peer.connectionState().name()).put("iceState",peer.iceConnectionState().name());
     CountDownLatch done=new CountDownLatch(1);
     peer.getStats(report -> {
       long audio=0,video=0,outAudio=0,outVideo=0;

@@ -44,6 +44,9 @@ final class NativeCallSession {
   private List<PeerConnection.IceServer> iceServers = Collections.emptyList();
   private final Map<String, String> subscribedMidTrack = new ConcurrentHashMap<>();
   private VideoTrack activeRemoteVideo;
+  private long subscriberStartedAt;
+  private boolean subscriberReceivedMedia;
+  private int subscriberRecoveries;
   private SurfaceTextureHelper textureHelper;
   private CameraVideoCapturer capturer;
   private AudioSource audioSource;
@@ -293,6 +296,26 @@ final class NativeCallSession {
       cap = snapshot.getString("cap");
       JSONArray members = snapshot.optJSONArray("members");
       if (members == null) return;
+      Set<String> current = new HashSet<>();
+      for (int i = 0; i < members.length(); i++) {
+        JSONObject member = members.optJSONObject(i);
+        if (member == null) continue;
+        String id = member.optString("id", "");
+        JSONArray tracks = member.optJSONArray("tracks");
+        if (!id.isEmpty() && !id.equals(selfId) && tracks != null && tracks.length() > 0) current.add(id);
+      }
+      // As on the web, remove obsolete receiver tracks when a participant leaves/rejoins.
+      if (!current.containsAll(subscribedMembers)) resetSubscriber();
+      if (subscriberPeer != null && !subscribedMembers.isEmpty()) {
+        PeerConnection.PeerConnectionState state = subscriberPeer.connectionState();
+        if (state == PeerConnection.PeerConnectionState.FAILED || state == PeerConnection.PeerConnectionState.CLOSED)
+          throw new IOException("远端媒体连接中断");
+        if (!subscriberReceivedMedia) {
+          subscriberReceivedMedia = hasInboundMedia(subscriberPeer);
+          if (!subscriberReceivedMedia && SystemClock.elapsedRealtime() - subscriberStartedAt > 30000)
+            throw new IOException("远端连接未收到媒体，正在重建接收连接");
+        }
+      }
       JSONArray subscribe = new JSONArray();
       Set<String> requested = new HashSet<>();
       for (int i = 0; i < members.length(); i++) {
@@ -322,10 +345,58 @@ final class NativeCallSession {
       }
       negotiateSubscription(offer.getString("sdp"));
       for (String id : requested) subscribedMembers.add(id);
-      listener.onStatus("已接入远端媒体轨道");
+      listener.onStatus("远端 WebRTC 连接已建立");
     } catch (Exception e) {
-      if (!stopRequested.get()) listener.onStatus("等待远端媒体：" + safeMessage(e));
+      if (stopRequested.get()) return;
+      // Reset only this participant's SFU subscriber, never another publisher or the call.
+      // This is also a safe reconciliation after an uncertain subscribe/answer response.
+      if (subscriberRecoveries++ < 2) {
+        try {
+          resetSubscriber();
+          listener.onStatus("正在重新连接远端媒体：" + safeMessage(e));
+        } catch (Exception resetError) { failCall("远端媒体恢复失败：" + safeMessage(resetError)); }
+      } else failCall("远端媒体连接失败，请重新加入：" + safeMessage(e));
     }
+  }
+
+  private boolean hasInboundMedia(PeerConnection connection) throws Exception {
+    CompletableFuture<Boolean> received = new CompletableFuture<>();
+    connection.getStats(report -> {
+      boolean media = false;
+      for (RTCStats stat : report.getStatsMap().values()) {
+        if (!"inbound-rtp".equals(stat.getType())) continue;
+        Object packets = stat.getMembers().get("packetsReceived");
+        if (packets instanceof Number && ((Number) packets).longValue() > 0) { media = true; break; }
+      }
+      received.complete(media);
+    });
+    return received.get(3, TimeUnit.SECONDS);
+  }
+
+  private void resetSubscriber() throws Exception {
+    checkStopped();
+    // Refresh the lease before any potentially slow negotiation/reconciliation.
+    JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
+    cap = fresh.getString("cap");
+    net.callApi(room, "call-reset-subscriber", new JSONObject().put("callId", callId), cap);
+    closeSubscriber();
+    core.run("call_subscriber_reset");
+  }
+
+  private void closeSubscriber() {
+    if (activeRemoteVideo != null) {
+      try { listener.onRemoteVideo(null, null); } catch (Exception ignored) {}
+      activeRemoteVideo = null;
+    }
+    if (subscriberPeer != null) {
+      try { subscriberPeer.close(); } catch (Exception ignored) {}
+      try { subscriberPeer.dispose(); } catch (Exception ignored) {}
+      subscriberPeer = null;
+    }
+    subscribedMembers.clear();
+    subscribedMidTrack.clear();
+    subscriberStartedAt = 0;
+    subscriberReceivedMedia = false;
   }
 
   private void negotiateSubscription(String offerSdp) throws Exception {
@@ -347,8 +418,10 @@ final class NativeCallSession {
         new JSONObject().put("callId", callId)
             .put("sessionDescription", new JSONObject().put("type", "answer").put("sdp", local.description)), cap);
     core.run("call_answered");
-    // HTTP acceptance confirms signalling only; ICE/media connectivity remains an independent state.
-    listener.onStatus("远端媒体应答已提交，正在建立 WebRTC 连接");
+    // A successful HTTP answer and onTrack are not proof of an established receiver.
+    awaitConnected(subscriberPeer, 12000);
+    subscriberStartedAt = SystemClock.elapsedRealtime();
+    subscriberReceivedMedia = false;
   }
 
   private synchronized void failCall(String message) {
@@ -384,17 +457,7 @@ final class NativeCallSession {
   }
 
   private void cleanupLocal() {
-    if (activeRemoteVideo != null) {
-      try { listener.onRemoteVideo(null, null); } catch (Exception ignored) {}
-      activeRemoteVideo = null;
-    }
-    if (subscriberPeer != null) {
-      try { subscriberPeer.close(); } catch (Exception ignored) {}
-      try { subscriberPeer.dispose(); } catch (Exception ignored) {}
-      subscriberPeer = null;
-    }
-    subscribedMembers.clear();
-    subscribedMidTrack.clear();
+    closeSubscriber();
     if (peer != null) {
       try { peer.close(); } catch (Exception ignored) {}
       try { peer.dispose(); } catch (Exception ignored) {}

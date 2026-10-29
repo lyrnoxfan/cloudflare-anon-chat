@@ -70,6 +70,9 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  J subscribeResponse={{"requiresImmediateRenegotiation",true},{"sessionDescription",{{"type","offer"},{"sdp","v=0\\r\\no=- 2 2 IN IP4 127.0.0.1\\r\\n"}}},{"tracks",J::array({{{"mid","1"},{"trackName","peer-video"}}})}};
  check(callEngine.command({{"op","call_subscribed"},{"response",subscribeResponse}})["phase"]=="subscribed");
  check(callEngine.command({{"op","call_answered"}})["phase"]=="answered");
+ check(callEngine.command({{"op","call_subscriber_reset"}})["phase"]=="ready");
+ check(callEngine.command({{"op","call_subscribed"},{"response",subscribeResponse}})["phase"]=="subscribed");
+ check(callEngine.command({{"op","call_answered"}})["phase"]=="answered");
  check(callEngine.command({{"op","call_state"}})["id"]=="call-1");
  check(callEngine.command({{"op","call_failed"}})["phase"]=="failed");
  check(callEngine.command({{"op","call_cleanup"}})["phase"]=="idle"&&callEngine.command({{"op","call_state"}})["id"]=="");
