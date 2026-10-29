@@ -294,8 +294,10 @@ public final class ChatFragment extends Fragment {
     Button drawerToggle = iconButton("‹", "打开房间导航", this::openRoomDrawer);
     drawerToggle.setTextSize(31);
     header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(36), dp(40)));
-    TextView roomMark = text("▱", 17, green);
-    roomMark.setGravity(Gravity.CENTER);
+    ImageView roomMark = new ImageView(getActivity());
+    roomMark.setImageDrawable(new ChatIconDrawable("轻聊房间", green,
+        getResources().getDisplayMetrics().density));
+    roomMark.setScaleType(ImageView.ScaleType.CENTER);
     roomMark.setBackground(shape(pale, 22));
     roomMark.setContentDescription("轻聊房间");
     LinearLayout.LayoutParams roomMarkParams = new LinearLayout.LayoutParams(dp(34), dp(34));

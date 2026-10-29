@@ -27,7 +27,7 @@ final class ChatIconDrawable extends Drawable {
     return name.equals("打开房间导航") || name.equals("发起语音通话")
         || name.equals("发起视频通话") || name.equals("更多房间操作")
         || name.equals("添加照片或文件") || name.equals("打开表情")
-        || name.equals("录制语音") || name.equals("发送消息");
+        || name.equals("录制语音") || name.equals("发送消息") || name.equals("轻聊房间");
   }
 
   private void lines(Canvas canvas, float... points) {
@@ -44,6 +44,12 @@ final class ChatIconDrawable extends Drawable {
         getBounds().exactCenterY() - size / 2);
     canvas.scale(size / 24, size / 24);
     switch (name) {
+      case "轻聊房间":
+        Path bubble = new Path();
+        bubble.moveTo(20, 11); bubble.cubicTo(20, 15.4f, 16.4f, 19, 12, 19);
+        bubble.lineTo(5, 19); bubble.lineTo(2, 22); bubble.lineTo(2, 11);
+        bubble.cubicTo(2, 6, 6, 2, 11, 2); bubble.cubicTo(16, 2, 20, 6, 20, 11);
+        canvas.drawPath(bubble, paint); lines(canvas, 7, 9, 15, 9); lines(canvas, 7, 13, 13, 13); break;
       case "打开房间导航":
         lines(canvas, 14, 5, 7, 12, 14, 19); lines(canvas, 7, 12, 21, 12); break;
       case "发起语音通话":
