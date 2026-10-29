@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+import json, os, subprocess, time
+from pathlib import Path
+out=Path(os.environ['QA_SFU_EVIDENCE'])
+runner='com.lyrnox.qingliao.qa.test/com.lyrnox.qingliao.RemoteSfuInstrumentation'
+processes=[]
+def begin(serial,role,extra=()):
+    f=open(out/f'{role}.txt','w')
+    p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget','blue-room-test','-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
+    processes.append((p,f)); return p
+try:
+    owner=begin('emulator-5554','owner')
+    deadline=time.monotonic()+100
+    invite=None
+    while time.monotonic()<deadline and owner.poll() is None:
+        r=subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','cat','files/sfu-invite.json'],capture_output=True,timeout=10)
+        try:
+            invite=json.loads(r.stdout)
+            if invite.get('room') and invite.get('password'): break
+        except (ValueError,UnicodeDecodeError): pass
+        time.sleep(1)
+    if not invite: raise RuntimeError('Owner did not create isolated SFU invite; see owner.txt')
+    # The invite is ephemeral test data, never a session or provider credential; keep it out of logs.
+    peer=begin('emulator-5556','peer',('-e','room',invite['room'],'-e','password',invite['password']))
+    for p,f in processes:
+        p.wait(timeout=240); f.flush()
+    for role in ('owner','peer'):
+        text=(out/f'{role}.txt').read_text()
+        print(text)
+        if 'PASS native SFU '+role not in text or 'PASS native hangup' not in text or 'INSTRUMENTATION_CODE: -1' not in text:
+            raise AssertionError(role+' native SFU acceptance failed')
+    (out/'result.json').write_text(json.dumps({'passed':True,'target':'blue-room-test / chat.lyrnox.com','devices':'two isolated Android 10 emulators','media':'emulated Camera2 and microphone; RTP and decoded video verified, not physical-device or subjective audio quality'},indent=2))
+finally:
+    for p,f in processes:
+        if p.poll() is None:
+            p.terminate()
+            try: p.wait(timeout=10)
+            except subprocess.TimeoutExpired: p.kill();p.wait()
+        f.close()

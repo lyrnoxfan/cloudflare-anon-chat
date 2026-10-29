@@ -36,3 +36,20 @@ The CI artifacts include the exact APKs, hashes, manifest/signature tool output,
 logs, JNI/service output, UI results and screenshots. A failed smoke remains failed, even
 if building/lint passed. No physical-device microphone/camera, remote SFU or dual-device
 call success is implied by this workflow. Existing local emulators/apps are not cleared.
+
+## Explicit remote native SFU acceptance
+
+`android-sfu.yml` is manually dispatched only for the authorized `blue-room-test`
+service at `https://chat.lyrnox.com`. It does not deploy or change cloud resources.
+`-PqaSfu` changes only the isolated `.qa` build's endpoint and instrumentation
+runner; normal debug/release and the default loopback QA builds are unchanged.
+Two ephemeral Android 10 emulators run the shipped `NativeCallSession` and JNI
+core independently. A unique private test room is used; no existing messages,
+rooms, installs or data are cleared. The ephemeral room remains after testing.
+The test requires both sides to decode at least ten video frames, receive audio
+RTP packets and video bytes, exercise mute/camera enable state and leave the
+server call. Emulated Camera2/microphone sources do not establish physical-device
+capture, subjective audio quality or real-network phone behavior. No session
+cookies, provider secrets, SDP, ICE credentials or raw WebRTC logcat are included
+in the public artifacts. Run results, not the presence of this workflow, determine
+whether acceptance passed.
