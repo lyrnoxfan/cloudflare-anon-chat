@@ -50,6 +50,7 @@ final class NativeCallSession {
   private final Map<String, String> memberNameById = new ConcurrentHashMap<>();
   private final Map<VideoTrack, String> activeRemoteVideos = Collections.synchronizedMap(new IdentityHashMap<>());
   private long subscriberStartedAt;
+  private long lastLeaseRefreshAt;
   private boolean subscriberReceivedMedia;
   private int subscriberRecoveries;
   private SurfaceTextureHelper textureHelper;
@@ -115,6 +116,7 @@ final class NativeCallSession {
       if (!callId.equals(state.optString("id"))) throw new IOException("通话标识发生变化");
       cap = joinedCall.getString("cap");
       joined = true;
+      lastLeaseRefreshAt = SystemClock.elapsedRealtime();
       checkStopped();
 
       iceServers = parseIceServers(joinResponse.getJSONArray("iceServers"));
@@ -259,8 +261,18 @@ final class NativeCallSession {
       @Override public void onCreateFailure(String error) { future.completeExceptionally(new IOException(error)); }
       @Override public void onSetFailure(String error) { future.completeExceptionally(new IOException(error)); }
     }, new MediaConstraints());
-    try { return future.get(15, TimeUnit.SECONDS); }
-    catch (ExecutionException e) {
+    long deadline = SystemClock.elapsedRealtime() + 15000;
+    try {
+      for (;;) {
+        long remaining = deadline - SystemClock.elapsedRealtime();
+        if (remaining <= 0) throw new TimeoutException("WebRTC SDP 操作超时");
+        try { return future.get(Math.min(remaining, 1000), TimeUnit.MILLISECONDS); }
+        catch (TimeoutException waiting) {
+          checkStopped();
+          keepLeaseAliveIfDue();
+        }
+      }
+    } catch (ExecutionException e) {
       Throwable cause = e.getCause();
       if (cause instanceof Exception) throw (Exception) cause;
       throw new IOException("WebRTC SDP 操作失败");
@@ -272,6 +284,7 @@ final class NativeCallSession {
     while (connection.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE &&
         SystemClock.elapsedRealtime() < end) {
       checkStopped();
+      keepLeaseAliveIfDue();
       Thread.sleep(50);
     }
   }
@@ -280,6 +293,7 @@ final class NativeCallSession {
     long end = SystemClock.elapsedRealtime() + timeoutMs;
     while (SystemClock.elapsedRealtime() < end) {
       checkStopped();
+      keepLeaseAliveIfDue();
       PeerConnection.PeerConnectionState state = connection.connectionState();
       if (state == PeerConnection.PeerConnectionState.CONNECTED) return;
       if (state == PeerConnection.PeerConnectionState.FAILED || state == PeerConnection.PeerConnectionState.CLOSED)
@@ -289,14 +303,23 @@ final class NativeCallSession {
     throw new IOException("媒体连接超时，请检查网络或 TURN 配置");
   }
 
+  private synchronized void refreshCallLease() throws Exception {
+    JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
+    if (!callId.equals(fresh.optString("id")) || !fresh.optBoolean("joined"))
+      throw new IOException("通话授权或连接已过期，请重新加入");
+    cap = fresh.getString("cap");
+    lastLeaseRefreshAt = SystemClock.elapsedRealtime();
+  }
+
+  private synchronized void keepLeaseAliveIfDue() throws Exception {
+    if (joined && !stopRequested.get() && callId != null &&
+        SystemClock.elapsedRealtime() - lastLeaseRefreshAt >= 10000) refreshCallLease();
+    checkStopped();
+  }
+
   private synchronized void beat() {
     if (stopRequested.get() || !joined) return;
-    try {
-      JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
-      if (!callId.equals(fresh.optString("id")) || !fresh.optBoolean("joined"))
-        throw new IOException("通话授权或连接已过期，请重新加入");
-      cap = fresh.getString("cap");
-    }
+    try { refreshCallLease(); }
     catch (Exception e) { failCall("通话心跳失败：" + safeMessage(e)); }
   }
 
@@ -404,8 +427,7 @@ final class NativeCallSession {
   private void resetSubscriber() throws Exception {
     checkStopped();
     // Refresh the lease before any potentially slow negotiation/reconciliation.
-    JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
-    cap = fresh.getString("cap");
+    refreshCallLease();
     net.callApi(room, "call-reset-subscriber", new JSONObject().put("callId", callId), cap);
     closeSubscriber(false);
     core.run("call_subscriber_reset");
