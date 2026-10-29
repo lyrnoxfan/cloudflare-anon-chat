@@ -63,7 +63,7 @@ def scroll_locate(key, attr='text', direction='up', attempts=8, **kwargs):
 def tap_node(n, long=False):
     x1,y1,x2,y2 = map(int, re.findall(r'\d+', n.get('bounds')))
     x,y = (x1+x2)//2, (y1+y2)//2
-    if long: adb('shell','input','swipe',str(x),str(y),str(x),str(y),'900')
+    if long: adb('shell','input','swipe',str(x),str(y),str(x),str(y),'1600')
     else: adb('shell','input','tap',str(x),str(y))
 
 def tap(key, attr='text', **kwargs):
@@ -148,6 +148,9 @@ try:
     passed('typed text is sent and rendered in Activity')
     capture('03-sent-message')
     tap_node(locate(marker, class_name='android.widget.TextView'), long=True)
+    # Capture the menu before searching/tapping so a missing popup is diagnosable.
+    capture('03-message-actions')
+    locate('回复', timeout=5)
     tap('回复')
     locate('取消回复','content-desc')
     passed('message long press opens reply draft')
