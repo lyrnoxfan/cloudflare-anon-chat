@@ -34,7 +34,8 @@ for serial in emulator-5554 emulator-5556; do
   adb -s "$serial" install -r android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk
   adb -s "$serial" shell pm grant com.lyrnox.qingliao.qa android.permission.CAMERA
   adb -s "$serial" shell pm grant com.lyrnox.qingliao.qa android.permission.RECORD_AUDIO
-  adb -s "$serial" shell am start -W -n com.lyrnox.qingliao.qa/com.lyrnox.qingliao.MainActivity
+  # The instrumentation launches the peer Activity only after its own persistent
+  # test session has been created, so its ChatNet loads the intended cookie.
  done
 export QA_SFU_EVIDENCE="$OUT"
 python3 android/qa-fixture/remote-sfu-run.py

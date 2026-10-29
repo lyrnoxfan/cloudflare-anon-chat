@@ -13,7 +13,12 @@ try:
     deadline=time.monotonic()+100
     invite=None
     while time.monotonic()<deadline and owner.poll() is None:
-        r=subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','cat','files/sfu-invite.json'],capture_output=True,timeout=10)
+        try:
+            r=subprocess.run(['adb','-s','emulator-5554','shell','run-as','com.lyrnox.qingliao.qa','cat','files/sfu-invite.json'],capture_output=True,timeout=10)
+        except subprocess.TimeoutExpired:
+            # A busy emulator may not service a concurrent shell immediately.
+            # Keep waiting for the same owner; never spawn another session here.
+            continue
         try:
             invite=json.loads(r.stdout)
             if invite.get('room') and invite.get('password'): break

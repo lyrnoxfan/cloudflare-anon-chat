@@ -90,7 +90,7 @@ public final class ChatFragment extends Fragment {
   private TextView inlineVideoPlaceholder;
   private String inlineVideoLoadingId = "";
   private int inlineVideoGeneration = 0;
-  private AudioPlayback activeAudio;
+  private AudioPlayback activeAudio, pendingAudio;
   private Runnable audioProgress;
   private int audioGeneration = 0;
   private File exportFile;
@@ -2158,7 +2158,22 @@ public final class ChatFragment extends Fragment {
           meta.setPadding(dp(7), dp(3), dp(7), 0);
           card.addView(meta);
         }
-        AudioPlayback playback = new AudioPlayback(card, m.optString("id"), m.optLong("size"), toggle, seek, clock);
+        String audioId = m.optString("id");
+        AudioPlayback playback = activeAudio != null && audioId.equals(activeAudio.messageId)
+            ? activeAudio : pendingAudio != null && audioId.equals(pendingAudio.messageId)
+                ? pendingAudio : new AudioPlayback(card, audioId, m.optLong("size"), toggle, seek, clock);
+        // ListView rebuilds rows on scroll/presence events; keep controls bound to
+        // the actual player or pending download instead of a detached old View.
+        int oldMax = playback.seek.getMax(), oldProgress = playback.seek.getProgress();
+        playback.card = card; playback.toggle = toggle; playback.seek = seek; playback.clock = clock;
+        seek.setMax(oldMax); seek.setProgress(oldProgress);
+        if (playback.loading) toggle.setText("…");
+        else if (playback == activeAudio && player != null && playback.ready) {
+          boolean playing = player.isPlaying();
+          toggle.setText(playing ? "Ⅱ" : "▶");
+          toggle.setContentDescription(playing ? "暂停语音" : "继续播放语音");
+          clock.setText(durationLabel(oldProgress));
+        }
         card.setTag(playback);
         toggle.setOnClickListener(v -> playInlineAudio(m, card));
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -2699,12 +2714,12 @@ public final class ChatFragment extends Fragment {
   }
 
   private static final class AudioPlayback {
-    final LinearLayout card;
+    LinearLayout card;
     final String messageId;
     final long expectedSize;
-    final Button toggle;
-    final SeekBar seek;
-    final TextView clock;
+    Button toggle;
+    SeekBar seek;
+    TextView clock;
     File file;
     boolean ready = false, loading = false;
     AudioPlayback(LinearLayout card, String messageId, long expectedSize, Button toggle, SeekBar seek, TextView clock) {
@@ -2714,6 +2729,11 @@ public final class ChatFragment extends Fragment {
   }
 
   private void stopPlayer() {
+    if (pendingAudio != null) {
+      pendingAudio.loading = false;
+      pendingAudio.toggle.setText("▶");
+      pendingAudio = null;
+    }
     if (mediaFocus != null) { mediaFocus.release(); mediaFocus = null; }
     audioGeneration++;
     if (audioProgress != null) main.removeCallbacks(audioProgress);
@@ -2758,6 +2778,11 @@ public final class ChatFragment extends Fragment {
       } else startInlineAudio(playback);
       return;
     }
+    if (pendingAudio != null && pendingAudio != playback) {
+      pendingAudio.loading = false;
+      pendingAudio.toggle.setText("▶");
+    }
+    pendingAudio = playback;
     playback.loading = true;
     playback.toggle.setText("…");
     String path = endpoint("download/") + playback.messageId;
@@ -2769,7 +2794,8 @@ public final class ChatFragment extends Fragment {
             Math.max(1, playback.expectedSize)) + 1024);
       } catch (Exception e) {
         main.post(() -> {
-          if (g == generation && card.isAttachedToWindow()) {
+          if (g == generation && pendingAudio == playback) {
+            pendingAudio = null;
             playback.loading = false;
             playback.toggle.setText("▶");
           }
@@ -2779,11 +2805,13 @@ public final class ChatFragment extends Fragment {
     }, value -> {
       File file = (File) value;
       playback.loading = false;
-      if (g != generation || !started || !card.isAttachedToWindow()) {
+      if (g != generation || !started || pendingAudio != playback || !playback.card.isAttachedToWindow()) {
+        if (pendingAudio == playback) pendingAudio = null;
         playback.toggle.setText("▶");
         file.delete();
         return;
       }
+      pendingAudio = null;
       playback.file = file;
       startInlineAudio(playback);
     });
