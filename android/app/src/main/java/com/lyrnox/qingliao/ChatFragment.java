@@ -1909,6 +1909,10 @@ public final class ChatFragment extends Fragment {
     if (!started || session == null) return;
     disconnect();
     int g = ++generation;
+    // A call-state request from the prior Activity generation may complete late.
+    // Its callback is intentionally ignored; clear the old in-flight guard here so
+    // the resumed Activity can issue fresh call-state reads and receive invitations.
+    callStateBusy = false;
     String path = endpoint("state");
     setStatus("正在连接…");
     task(
