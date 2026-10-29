@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit two-native-session check against the already authorized blue-room-test service.
+# Three-native-session group-call check against the already authorized blue-room-test service.
 # Never deploys, changes cloud configuration, uses production secrets or clears existing data.
 set -euo pipefail
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
@@ -7,7 +7,7 @@ OUT="$PWD/android/evidence/sfu"; mkdir -p "$OUT"
 export ANDROID_AVD_HOME="$RUNNER_TEMP/sfu-avds"; mkdir -p "$ANDROID_AVD_HOME"
 pids=()
 cleanup() {
-  for serial in emulator-5554 emulator-5556; do
+  for serial in emulator-5554 emulator-5556 emulator-5558; do
     # Runtime media logs can contain SDP/ICE or ephemeral capabilities: do not publish raw logcat.
     adb -s "$serial" emu kill >/dev/null 2>&1 || true
   done
@@ -16,13 +16,13 @@ cleanup() {
 trap cleanup EXIT
 test -c /dev/kvm; sudo chmod a+rw /dev/kvm
 adb start-server
-for spec in 'a 5554' 'b 5556'; do
+for spec in 'a 5554' 'b 5556' 'c 5558'; do
   read -r name port <<< "$spec"
   "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --force --name "sfu-$name" --package 'system-images;android-29;default;x86_64' --device pixel_2 <<< no
   emulator -avd "sfu-$name" -port "$port" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 1536 -cores 2 -camera-back emulated -camera-front emulated > "$OUT/emulator-$name.log" 2>&1 &
   pids+=("$!")
 done
-for serial in emulator-5554 emulator-5556; do
+for serial in emulator-5554 emulator-5556 emulator-5558; do
   ready=false
   for i in $(seq 1 150); do
     if [[ "$(timeout 5 adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then ready=true; break; fi

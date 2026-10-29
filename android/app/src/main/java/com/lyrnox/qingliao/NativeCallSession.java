@@ -18,7 +18,7 @@ final class NativeCallSession {
   interface Listener {
     void onStatus(String message);
     void onFailure(String message);
-    void onRemoteVideo(VideoTrack track, EglBase.Context eglContext);
+    void onRemoteVideo(String memberId, String nickname, VideoTrack track, EglBase.Context eglContext);
     void onLocalVideo(VideoTrack track, EglBase.Context eglContext);
   }
 
@@ -43,7 +43,9 @@ final class NativeCallSession {
   private EglBase egl;
   private List<PeerConnection.IceServer> iceServers = Collections.emptyList();
   private final Map<String, String> subscribedMidTrack = new ConcurrentHashMap<>();
-  private VideoTrack activeRemoteVideo;
+  private final Map<String, String> trackOwnerByName = new ConcurrentHashMap<>();
+  private final Map<String, String> memberNameById = new ConcurrentHashMap<>();
+  private final Map<VideoTrack, String> activeRemoteVideos = Collections.synchronizedMap(new IdentityHashMap<>());
   private long subscriberStartedAt;
   private boolean subscriberReceivedMedia;
   private int subscriberRecoveries;
@@ -310,6 +312,16 @@ final class NativeCallSession {
         String id = member.optString("id", "");
         JSONArray tracks = member.optJSONArray("tracks");
         if (!id.isEmpty() && !id.equals(selfId) && tracks != null && tracks.length() > 0) current.add(id);
+        if (id.isEmpty()) continue;
+        String nickname = member.optString("nickname", "");
+        if (!nickname.isEmpty()) memberNameById.put(id, nickname);
+        if (tracks == null) continue;
+        for (int j = 0; j < tracks.length(); j++) {
+          JSONObject track = tracks.optJSONObject(j);
+          if (track == null) continue;
+          String trackName = track.optString("trackName", "");
+          if (!trackName.isEmpty()) trackOwnerByName.put(trackName, id);
+        }
       }
       // As on the web, remove obsolete receiver tracks when a participant leaves/rejoins.
       if (!current.containsAll(subscribedMembers)) resetSubscriber();
@@ -386,14 +398,18 @@ final class NativeCallSession {
     JSONObject fresh = net.callApi(room, "call-heartbeat", new JSONObject().put("callId", callId), cap).getJSONObject("call");
     cap = fresh.getString("cap");
     net.callApi(room, "call-reset-subscriber", new JSONObject().put("callId", callId), cap);
-    closeSubscriber();
+    closeSubscriber(false);
     core.run("call_subscriber_reset");
   }
 
-  private void closeSubscriber() {
-    if (activeRemoteVideo != null) {
-      try { listener.onRemoteVideo(null, null); } catch (Exception ignored) {}
-      activeRemoteVideo = null;
+  private void closeSubscriber() { closeSubscriber(true); }
+
+  private void closeSubscriber(boolean clearTrackMetadata) {
+    synchronized (activeRemoteVideos) {
+      for (Map.Entry<VideoTrack, String> entry : activeRemoteVideos.entrySet()) {
+        try { listener.onRemoteVideo(entry.getValue(), memberNameById.getOrDefault(entry.getValue(), entry.getValue()), null, null); } catch (Exception ignored) {}
+      }
+      activeRemoteVideos.clear();
     }
     if (subscriberPeer != null) {
       try { subscriberPeer.close(); } catch (Exception ignored) {}
@@ -402,6 +418,10 @@ final class NativeCallSession {
     }
     subscribedMembers.clear();
     subscribedMidTrack.clear();
+    if (clearTrackMetadata) {
+      trackOwnerByName.clear();
+      memberNameById.clear();
+    }
     subscriberStartedAt = 0;
     subscriberReceivedMedia = false;
   }
@@ -437,7 +457,6 @@ final class NativeCallSession {
     cleanupLocal();
     try { core.run("call_failed"); } catch (Exception ignored) {}
     signalCleanup();
-    listener.onRemoteVideo(null, null);
     listener.onFailure(message);
   }
 
@@ -449,7 +468,6 @@ final class NativeCallSession {
     cleanupLocal();
     signalCleanup();
     try { core.run("call_cleanup"); } catch (Exception ignored) {}
-    listener.onRemoteVideo(null, null);
   }
 
   private void signalCleanup() {
@@ -551,15 +569,33 @@ final class NativeCallSession {
       } else if (track instanceof VideoTrack) {
         VideoTrack incoming = (VideoTrack) track;
         incoming.setEnabled(true);
-        activeRemoteVideo = incoming;
-        listener.onRemoteVideo(incoming, egl == null ? null : egl.getEglBaseContext());
+        String mid = transceiver.getMid();
+        String trackName = mid == null ? null : subscribedMidTrack.get(mid);
+        String memberId = trackName == null ? null : trackOwnerByName.get(trackName);
+        if (memberId == null || memberId.isEmpty()) memberId = trackName;
+        if (memberId == null || memberId.isEmpty()) memberId = mid == null || mid.isEmpty() ? null : "mid:" + mid;
+        if (memberId == null || memberId.isEmpty()) return;
+        String previous = null;
+        boolean alreadyAttached = false;
+        synchronized (activeRemoteVideos) {
+          for (Iterator<Map.Entry<VideoTrack, String>> it = activeRemoteVideos.entrySet().iterator(); it.hasNext();) {
+            Map.Entry<VideoTrack, String> entry = it.next();
+            if (entry.getKey() == incoming) { alreadyAttached = true; break; }
+            if (memberId.equals(entry.getValue())) { previous = entry.getValue(); it.remove(); }
+          }
+          if (!alreadyAttached) activeRemoteVideos.put(incoming, memberId);
+        }
+        if (alreadyAttached) return;
+        if (previous != null) listener.onRemoteVideo(previous, memberNameById.getOrDefault(previous, previous), null, null);
+        listener.onRemoteVideo(memberId, memberNameById.getOrDefault(memberId, memberId), incoming, egl == null ? null : egl.getEglBaseContext());
       }
     }
     @Override public void onRemoveTrack(RtpReceiver receiver) {
       MediaStreamTrack track = receiver == null ? null : receiver.track();
-      if (track == activeRemoteVideo) {
-        activeRemoteVideo = null;
-        listener.onRemoteVideo(null, null);
+      if (track instanceof VideoTrack) {
+        String memberId;
+        synchronized (activeRemoteVideos) { memberId = activeRemoteVideos.remove((VideoTrack) track); }
+        if (memberId != null) listener.onRemoteVideo(memberId, memberNameById.getOrDefault(memberId, memberId), null, null);
       }
     }
   }

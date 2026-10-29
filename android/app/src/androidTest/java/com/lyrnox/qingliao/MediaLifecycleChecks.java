@@ -76,7 +76,7 @@ final class MediaLifecycleChecks {
         NativeCallSession cancelled = new NativeCallSession(context, core, net, "lobby", "qa", new NativeCallSession.Listener() {
           public void onStatus(String s) {} public void onFailure(String s) {}
           public void onLocalVideo(org.webrtc.VideoTrack t, org.webrtc.EglBase.Context e) {}
-          public void onRemoteVideo(org.webrtc.VideoTrack t, org.webrtc.EglBase.Context e) {}
+          public void onRemoteVideo(String id, String name, org.webrtc.VideoTrack t, org.webrtc.EglBase.Context e) {}
         });
         cancelled.requestStop();
         boolean rejected = false;

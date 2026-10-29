@@ -24,7 +24,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon -PqaSfu assembleQa assembleQaAndroidTest lintQa
-      - name: Verify two native SFU participants and decoded media
+      - name: Verify three native SFU participants and decoded media
         run: bash android/qa-fixture/remote-sfu.sh
       - name: Upload sanitized SFU evidence
         if: always()

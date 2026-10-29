@@ -13,15 +13,19 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 import org.webrtc.*;
 
-/** Explicit manual test of the shipped native SFU client against blue-room-test.
- * Two isolated emulators use emulated cameras; not physical-device acceptance. */
+/** Three-client native group-call acceptance against the approved isolated SFU test service.
+ * Three isolated emulators use emulated cameras; not physical-device acceptance. */
 public final class RemoteSfuInstrumentation extends Instrumentation {
   private Bundle args;
+  private final AtomicInteger decodedFrames = new AtomicInteger();
+  private final java.util.concurrent.ConcurrentHashMap<VideoTrack, AtomicInteger> framesByTrack = new java.util.concurrent.ConcurrentHashMap<>();
+  private final java.util.concurrent.ConcurrentHashMap<VideoTrack, VideoSink> sinksByTrack = new java.util.concurrent.ConcurrentHashMap<>();
   @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); args = arguments; start(); }
   @Override public void onStart() {
     Bundle result = new Bundle();
     NativeCallSession call = null;
     boolean owner = args != null && "owner".equals(args.getString("role"));
+    boolean extra = args != null && "extra".equals(args.getString("role"));
     android.app.Activity activity = null;
     ChatFragment fragment = null;
     try (NativeCore core = new NativeCore(); ChatNet net = new ChatNet(getTargetContext(), !owner)) {
@@ -53,21 +57,23 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         if (callId.isEmpty()) throw new AssertionError("Owner did not open test call");
       }
       core.run("reset", "room", room);
-      AtomicInteger frames = new AtomicInteger();
       AtomicReference<String> failure = new AtomicReference<>();
       AtomicReference<String> status = new AtomicReference<>("initializing");
-      VideoSink sink = frame -> { if (frame.getBuffer().getWidth()>0 && frame.getBuffer().getHeight()>0) frames.incrementAndGet(); };
-      AtomicReference<VideoTrack> remote = new AtomicReference<>();
-      if (owner) {
-      call = new NativeCallSession(getTargetContext(),core,net,room,session.getString("id"),new NativeCallSession.Listener(){
+      java.util.concurrent.ConcurrentHashMap<String, VideoTrack> remote = new java.util.concurrent.ConcurrentHashMap<>();
+      NativeCallSession.Listener listener = new NativeCallSession.Listener(){
         public void onStatus(String text) { status.set(text); }
         public void onFailure(String text) { failure.set(text); }
         public void onLocalVideo(VideoTrack track,EglBase.Context egl) {}
-        public void onRemoteVideo(VideoTrack track,EglBase.Context egl) {
-          VideoTrack old=remote.getAndSet(track); if(old!=null) old.removeSink(sink); if(track!=null) track.addSink(sink);
+        public void onRemoteVideo(String memberId, String memberName, VideoTrack track,EglBase.Context egl) {
+          if (memberId == null) return;
+          VideoTrack old = track == null ? remote.remove(memberId) : remote.put(memberId, track);
+          if (old != null && old != track) removeFrameSink(old);
+          if (track != null && old != track) addFrameSink(track);
         }
-      });
-      call.start("video",callId,"");
+      };
+      if (owner || extra) {
+        call = new NativeCallSession(getTargetContext(),core,net,room,session.getString("id"),listener);
+        call.start("video",callId,"");
       } else {
         // The test prepares a cookie and already-authorized room membership. The actual
         // foreground Activity renders the invitation; its real View click creates the session.
@@ -95,24 +101,66 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         call = (NativeCallSession) field(ui, "nativeCall");
         if (call == null) throw new AssertionError("Activity join View did not create native session");
       }
-      long deadline=System.currentTimeMillis()+120000;
+      long deadline=System.currentTimeMillis()+150000;
       long audioPackets=0,videoBytes=0;
+      int renderedRemoteCount=0;
+      AtomicReference<Boolean> tracksDecoded = new AtomicReference<>(false);
       while(System.currentTimeMillis()<deadline) {
         if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
-        if (!owner) {
+        if (!owner && !extra) {
           if (field(fragment, "nativeCall") != call)
             throw new AssertionError("Activity call ended before receiving media");
-          VideoTrack track = (VideoTrack) field(call, "activeRemoteVideo");
-          if (track != null && remote.get() != track) { remote.set(track); track.addSink(sink); }
+          final ChatFragment ui = fragment;
+          AtomicReference<java.util.Set<String>> labels = new AtomicReference<>(new java.util.HashSet<>());
+          AtomicInteger visibleCount = new AtomicInteger();
+          runOnMainSync(() -> {
+            try {
+              @SuppressWarnings("unchecked") java.util.Map<String,?> rendered =
+                  (java.util.Map<String,?>) field(ui, "remoteRenderers");
+              java.util.Set<String> names = new java.util.HashSet<>();
+              android.widget.GridLayout grid = (android.widget.GridLayout) field(ui, "callVideoGrid");
+              int attached = 0;
+              java.util.Set<VideoTrack> liveTracks = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+              for (Object binding : rendered.values()) {
+                try {
+                  Field trackField = binding.getClass().getDeclaredField("track"); trackField.setAccessible(true);
+                  VideoTrack track = (VideoTrack) trackField.get(binding);
+                  if (track != null) { liveTracks.add(track); addFrameSink(track); }
+                  Field cellField = binding.getClass().getDeclaredField("cell"); cellField.setAccessible(true);
+                  android.widget.FrameLayout cell = (android.widget.FrameLayout) cellField.get(binding);
+                  if (grid != null && cell.getParent() == grid) attached++;
+                  if (cell.getChildCount() == 2 && cell.getChildAt(1) instanceof android.widget.TextView) {
+                    String label = ((android.widget.TextView) cell.getChildAt(1)).getText().toString();
+                    if (!label.isEmpty()) names.add(label);
+                  }
+                } catch (ReflectiveOperationException ignored) {}
+              }
+              visibleCount.set(attached);
+              labels.set(names);
+              tracksDecoded.set(liveTracks.size() >= 2 && liveTracks.stream().allMatch(track -> {
+                AtomicInteger count = framesByTrack.get(track);
+                return count != null && count.get() >= 10;
+              }));
+            } catch (Exception e) { throw new RuntimeException(e); }
+          });
+          renderedRemoteCount = visibleCount.get();
+          if (renderedRemoteCount >= 2 && labels.get().size() < 2)
+            throw new AssertionError("Group video grid is missing distinct participant labels: " + labels.get());
+        } else {
+          renderedRemoteCount = remote.size();
+          tracksDecoded.set(renderedRemoteCount >= 2 && remote.values().stream().allMatch(track -> {
+            AtomicInteger count = framesByTrack.get(track);
+            return count != null && count.get() >= 10;
+          }));
         }
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");
-        if(frames.get()>=10 && audioPackets>10 && videoBytes>0) break;
+        if (decodedFrames.get() >= 20 && tracksDecoded.get() && audioPackets > 10 && videoBytes > 0 && renderedRemoteCount >= 2) break;
         Thread.sleep(1500);
       }
-      if(frames.get()<10 || audioPackets<=10 || videoBytes<=0)
-        throw new AssertionError("Remote native media incomplete: frames="+frames.get()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
-      if (owner) {
+      if (decodedFrames.get() < 20 || !tracksDecoded.get() || audioPackets <= 10 || videoBytes <= 0 || renderedRemoteCount < 2)
+        throw new AssertionError("Remote group media incomplete: remoteVideoTracks="+renderedRemoteCount+", frames="+decodedFrames.get()+", perTrackFrames="+frameCounts()+", audioPackets="+audioPackets+", videoBytes="+videoBytes+"; receiver="+stats(call)+"; outbound="+stats(call, "peer")+"; lastStatus="+status.get());
+      if (owner || extra) {
         if(call.toggleMicrophone()) throw new AssertionError("Mute did not disable audio");
         if(!call.toggleMicrophone()) throw new AssertionError("Unmute did not enable audio");
         if(call.toggleCamera()) throw new AssertionError("Camera disable failed");
@@ -123,16 +171,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         click(fragment, "callCamera"); awaitTrack(call, true, false);
         click(fragment, "callCamera"); awaitTrack(call, true, true);
       }
-      result.putString("stream","PASS native SFU "+(owner?"owner":"peer")+": decodedVideoFrames="+frames.get()+", receivedAudioPackets="+audioPackets+", receivedVideoBytes="+videoBytes+"; emulated camera/microphone, not physical devices\n");
-      // Do not hang up merely because this receiver is ready: the other receiver may
-      // still be gathering ICE. The host releases both only after both measured media.
+      result.putString("stream","PASS native SFU "+(owner?"owner":extra?"extra":"peer")+": decodedVideoFrames="+decodedFrames.get()+", perTrackFrames="+frameCounts()+", receivedAudioPackets="+audioPackets+", receivedVideoBytes="+videoBytes+", renderedRemoteVideoTracks="+renderedRemoteCount+"; emulated camera/microphone, not physical devices\n");
+      // Keep all three publishers active until each receiver has measured both remote streams.
       File ready = new File(getTargetContext().getFilesDir(), "sfu-ready");
       File release = new File(getTargetContext().getFilesDir(), "sfu-release");
       java.nio.file.Files.write(ready.toPath(), "media-ready".getBytes("UTF-8"));
       long releaseDeadline = System.currentTimeMillis() + 150000;
       while (!release.exists() && System.currentTimeMillis() < releaseDeadline) Thread.sleep(500);
-      if (!release.exists()) throw new AssertionError("Peer did not confirm media before hangup barrier");
-      if (owner) { call.stop(); call=null; }
+      if (!release.exists()) throw new AssertionError("Group did not confirm media before hangup barrier");
+      if (owner || extra) { call.stop(); call=null; }
       else {
         final ChatFragment ui = fragment;
         // Exercise real screen-off/on while the native call is live. The disposable AOSP
@@ -170,7 +217,38 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
       finish(-1,result);
     } catch(Throwable e) {
       result.putString("stream","FAILED "+e.getClass().getSimpleName()+": "+e.getMessage()+"\n"); finish(0,result);
-    } finally { if(call!=null) call.stop(); }
+    } finally {
+      for (java.util.Map.Entry<VideoTrack, VideoSink> entry : sinksByTrack.entrySet()) {
+        try { entry.getKey().removeSink(entry.getValue()); } catch (Exception ignored) {}
+      }
+      sinksByTrack.clear();
+      framesByTrack.clear();
+      if (call != null) call.stop();
+    }
+  }
+  private void addFrameSink(VideoTrack track) {
+    sinksByTrack.computeIfAbsent(track, key -> {
+      AtomicInteger count = framesByTrack.computeIfAbsent(key, ignored -> new AtomicInteger());
+      VideoSink sink = frame -> {
+        if (frame.getBuffer().getWidth() > 0 && frame.getBuffer().getHeight() > 0) {
+          count.incrementAndGet();
+          decodedFrames.incrementAndGet();
+        }
+      };
+      key.addSink(sink);
+      return sink;
+    });
+  }
+  private void removeFrameSink(VideoTrack track) {
+    VideoSink sink = sinksByTrack.remove(track);
+    if (sink != null) { try { track.removeSink(sink); } catch (Exception ignored) {} }
+    framesByTrack.remove(track);
+  }
+  private String frameCounts() {
+    java.util.List<Integer> counts = new java.util.ArrayList<>();
+    for (AtomicInteger count : framesByTrack.values()) counts.add(count.get());
+    java.util.Collections.sort(counts);
+    return counts.toString();
   }
   private void shell(String command) throws Exception {
     android.os.ParcelFileDescriptor descriptor = getUiAutomation().executeShellCommand(command);

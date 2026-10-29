@@ -58,4 +58,4 @@ ctest --test-dir .native-tests --output-on-failure
 - GitHub Actions `android.yml`：构建正常 Debug、回环 QA 和 instrumentation APK，运行 lint、C++ sanitizer、真实 Android 10（API 29）Activity/媒体/主题检查，再用原生客户端连接本地真实 Worker/D1/R2/DO。
 - `android-sfu.yml`：仅手动触发，使用 `-PqaSfu` 将隔离 QA 包连接已经授权的 `blue-room-test`；两个新模拟端检查音频 RTP、解码视频、静音/摄像头状态；peer 经真实 Activity 的 View 加入并验证 Home 清理与不自动恢复。不是物理手机或主观音质验收。
 - 默认 `.qa` 包只连接 `127.0.0.1:8000`，不是正常安装使用的包。正常使用选择 Debug APK；两者都是测试签名，不是 Release。
-- 工作流存在不代表测试通过。确切冻结提交、运行号、截图及限制以随交付的 `ACCEPTANCE-0.2.8-<commit>.md` 为准。`VALIDATION.md` 和对照表保留了旧版历史，不能把旧版检查计入新版。
+- 工作流存在不代表测试通过。确切冻结提交、运行号、截图及限制以随交付的 `ACCEPTANCE-0.2.9-<commit>.md` 为准。`VALIDATION.md` 和对照表保留了旧版历史，不能把旧版检查计入新版。

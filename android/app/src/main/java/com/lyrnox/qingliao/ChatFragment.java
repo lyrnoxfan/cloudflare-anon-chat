@@ -65,8 +65,19 @@ public final class ChatFragment extends Fragment {
   private TextView heading, subtitle, identityBadge, onlineDot, statusView, recordView, callLabel;
   private LinearLayout callPanel, callButtons;
   private LinearLayout callVideoContainer;
+  private GridLayout callVideoGrid;
   private SurfaceViewRenderer localRenderer;
+  private FrameLayout localVideoCell;
   private VideoTrack localVideoTrack;
+  private static final class RemoteRendererBinding {
+    final SurfaceViewRenderer renderer;
+    final FrameLayout cell;
+    final VideoTrack track;
+    RemoteRendererBinding(SurfaceViewRenderer renderer, FrameLayout cell, VideoTrack track) {
+      this.renderer = renderer; this.cell = cell; this.track = track;
+    }
+  }
+  private final Map<String, RemoteRendererBinding> remoteRenderers = new LinkedHashMap<>();
   private Button callJoin, callDecline, callMute, callCamera, callFlip, callEnd;
   private HorizontalScrollView callButtonScroll;
   private long observedCallStartedAt;
@@ -99,8 +110,6 @@ public final class ChatFragment extends Fragment {
   private AudioFocusLease mediaFocus;
   private int pendingCallGeneration = -1;
   private NativeCallSession nativeCall;
-  private SurfaceViewRenderer remoteRenderer;
-  private VideoTrack remoteVideoTrack;
   private String pendingCallKind = "";
   private String pendingCallId = "";
   private String pendingCallTargetId = "";
@@ -361,10 +370,14 @@ public final class ChatFragment extends Fragment {
     callLabel = text("", 13, ink);
     callPanel.addView(callLabel);
     callVideoContainer = new LinearLayout(getActivity());
-    callVideoContainer.setOrientation(LinearLayout.HORIZONTAL);
+    callVideoContainer.setOrientation(LinearLayout.VERTICAL);
     callVideoContainer.setVisibility(View.GONE);
     callVideoContainer.setBackground(shape(Color.rgb(38, 48, 41), 18));
     callVideoContainer.setClipToOutline(true);
+    callVideoGrid = new GridLayout(getActivity());
+    callVideoGrid.setColumnCount(2);
+    callVideoGrid.setUseDefaultMargins(false);
+    callVideoContainer.addView(callVideoGrid, new LinearLayout.LayoutParams(-1, -1));
     LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(-1, dp(220));
     videoParams.topMargin = dp(8);
     callPanel.addView(callVideoContainer, videoParams);
@@ -1177,8 +1190,8 @@ public final class ChatFragment extends Fragment {
               }
             });
           }
-          @Override public void onRemoteVideo(VideoTrack track, EglBase.Context eglContext) {
-            main.post(() -> attachCallVideo(track, eglContext, false, callRef[0]));
+          @Override public void onRemoteVideo(String memberId, String memberName, VideoTrack track, EglBase.Context eglContext) {
+            main.post(() -> attachRemoteCallVideo(memberId, memberName, track, eglContext, callRef[0]));
           }
           @Override public void onLocalVideo(VideoTrack track, EglBase.Context eglContext) {
             main.post(() -> attachCallVideo(track, eglContext, true, callRef[0]));
@@ -1388,9 +1401,9 @@ public final class ChatFragment extends Fragment {
 
   private void attachCallVideo(VideoTrack track, EglBase.Context eglContext, boolean local,
       NativeCallSession call) {
-    if (nativeCall != call || getActivity() == null || callVideoContainer == null) return;
+    if (!local || nativeCall != call || getActivity() == null || callVideoContainer == null) return;
     if (track == null || eglContext == null) {
-      if (local) clearLocalRenderer(); else clearRemoteRenderer();
+      clearLocalRenderer();
       return;
     }
     try {
@@ -1402,52 +1415,110 @@ public final class ChatFragment extends Fragment {
       renderer.setMirror(local);
       renderer.setEnableHardwareScaler(true);
       renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
-      if (local) {
-        clearLocalRenderer();
-        localRenderer = renderer;
-        localVideoTrack = track;
-      } else {
-        clearRemoteRenderer();
-        remoteRenderer = renderer;
-        remoteVideoTrack = track;
-      }
+      clearLocalRenderer();
+      localRenderer = renderer;
+      localVideoTrack = track;
       track.addSink(renderer);
-      callVideoContainer.addView(renderer, new LinearLayout.LayoutParams(0, -1, 1));
+      localVideoCell = callVideoTile(renderer, nickname + "（我）");
+      rebuildCallVideoGrid();
       updateCallVideoVisibility(true);
       renderCallPanel();
     } catch (RuntimeException ignored) {
-      if (local) clearLocalRenderer(); else clearRemoteRenderer();
+      clearLocalRenderer();
+    }
+  }
+
+  private void attachRemoteCallVideo(String memberId, String memberName, VideoTrack track, EglBase.Context eglContext,
+      NativeCallSession call) {
+    if (nativeCall != call || getActivity() == null || callVideoContainer == null || memberId == null) return;
+    if (track == null || eglContext == null) {
+      clearRemoteRenderer(memberId);
+      return;
+    }
+    try {
+      SurfaceViewRenderer renderer = new SurfaceViewRenderer(getActivity());
+      renderer.init(eglContext, new RendererCommon.RendererEvents() {
+        @Override public void onFirstFrameRendered() {}
+        @Override public void onFrameResolutionChanged(int width, int height, int rotation) {}
+      });
+      renderer.setMirror(false);
+      renderer.setEnableHardwareScaler(true);
+      renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
+      clearRemoteRenderer(memberId);
+      track.addSink(renderer);
+      remoteRenderers.put(memberId, new RemoteRendererBinding(renderer, callVideoTile(renderer,
+          memberName == null || memberName.isEmpty() ? memberId : memberName), track));
+      rebuildCallVideoGrid();
+      updateCallVideoVisibility(true);
+    } catch (RuntimeException ignored) {
+      clearRemoteRenderer(memberId);
+    }
+  }
+
+  private FrameLayout callVideoTile(SurfaceViewRenderer renderer, String label) {
+    FrameLayout tile = new FrameLayout(getActivity());
+    tile.addView(renderer, new FrameLayout.LayoutParams(-1, -1));
+    TextView caption = text(label == null ? "" : label, 10, Color.WHITE);
+    caption.setBackgroundColor(0x99000000);
+    caption.setPadding(dp(6), dp(2), dp(6), dp(2));
+    FrameLayout.LayoutParams captionParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
+    tile.addView(caption, captionParams);
+    return tile;
+  }
+
+  private void rebuildCallVideoGrid() {
+    if (callVideoGrid == null) return;
+    callVideoGrid.removeAllViews();
+    ArrayList<FrameLayout> tiles = new ArrayList<>();
+    if (localVideoCell != null) tiles.add(localVideoCell);
+    for (RemoteRendererBinding binding : remoteRenderers.values()) tiles.add(binding.cell);
+    int count = tiles.size();
+    int columns = count <= 1 ? 1 : 2;
+    callVideoGrid.setColumnCount(columns);
+    callVideoGrid.setRowCount(Math.max(1, (count + columns - 1) / columns));
+    for (int i = 0; i < count; i++) {
+      GridLayout.LayoutParams params = new GridLayout.LayoutParams(
+          GridLayout.spec(i / columns, 1, 1f), GridLayout.spec(i % columns, 1, 1f));
+      params.width = 0;
+      params.height = 0;
+      params.setMargins(dp(2), dp(2), dp(2), dp(2));
+      callVideoGrid.addView(tiles.get(i), params);
     }
   }
 
   private void updateCallVideoVisibility(boolean videoCall) {
     if (callVideoContainer == null) return;
-    callVideoContainer.setVisibility(videoCall && callVideoContainer.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+    callVideoContainer.setVisibility(videoCall && callVideoGrid != null && callVideoGrid.getChildCount() > 0 ? View.VISIBLE : View.GONE);
   }
 
   private void clearLocalRenderer() {
     if (localVideoTrack != null && localRenderer != null) localVideoTrack.removeSink(localRenderer);
     if (localRenderer != null) {
-      if (callVideoContainer != null) callVideoContainer.removeView(localRenderer);
+      if (localRenderer.getParent() instanceof ViewGroup)
+        ((ViewGroup) localRenderer.getParent()).removeView(localRenderer);
       localRenderer.release();
       localRenderer = null;
+      localVideoCell = null;
     }
     localVideoTrack = null;
+    rebuildCallVideoGrid();
+    updateCallVideoVisibility(true);
+  }
+
+  private void clearRemoteRenderer(String memberId) {
+    RemoteRendererBinding binding = remoteRenderers.remove(memberId);
+    if (binding != null) {
+      try { binding.track.removeSink(binding.renderer); } catch (Exception ignored) {}
+      if (binding.renderer.getParent() instanceof ViewGroup)
+        ((ViewGroup) binding.renderer.getParent()).removeView(binding.renderer);
+      try { binding.renderer.release(); } catch (Exception ignored) {}
+    }
+    rebuildCallVideoGrid();
     updateCallVideoVisibility(true);
   }
 
   private void clearRemoteRenderer() {
-    if (remoteVideoTrack != null && remoteRenderer != null) {
-      try { remoteVideoTrack.removeSink(remoteRenderer); } catch (Exception ignored) {}
-    }
-    remoteVideoTrack = null;
-    if (remoteRenderer != null) {
-      if (remoteRenderer.getParent() instanceof ViewGroup)
-        ((ViewGroup) remoteRenderer.getParent()).removeView(remoteRenderer);
-      try { remoteRenderer.release(); } catch (Exception ignored) {}
-      remoteRenderer = null;
-    }
-    updateCallVideoVisibility(true);
+    for (String memberId : new ArrayList<>(remoteRenderers.keySet())) clearRemoteRenderer(memberId);
   }
 
   private void stopNativeCall() {
