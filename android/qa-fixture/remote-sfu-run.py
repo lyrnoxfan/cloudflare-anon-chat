@@ -20,6 +20,16 @@ def begin(serial,role,extra=()):
     f=open(out/f'{role}.txt','w')
     p=subprocess.Popen(['adb','-s',serial,'shell','am','instrument','-w','-r','-e','approvedTarget','blue-room-test','-e','role',role,*extra,runner],stdout=f,stderr=subprocess.STDOUT)
     processes.append((p,f)); return p
+def wait_marker(serial, name, role, timeout):
+    deadline=time.monotonic()+timeout
+    path=name
+    while time.monotonic()<deadline:
+        r=subprocess.run(['adb','-s',serial,'shell','run-as','com.lyrnox.qingliao.qa','cat',path],capture_output=True,timeout=10)
+        if r.returncode==0 and r.stdout.strip(): return
+        failed=[label for (p,_),label in zip(processes,('owner','extra','peer')) if p.poll() is not None]
+        if failed: raise RuntimeError('SFU participant exited before '+role+' marker; completed='+str(failed)+'; see participant logs')
+        time.sleep(1)
+    raise RuntimeError('Timed out waiting for '+role+' marker '+name)
 try:
     owner=begin('emulator-5554','owner')
     deadline=time.monotonic()+100
@@ -39,7 +49,13 @@ try:
     if not invite: raise RuntimeError('Owner did not create isolated SFU invite; see owner.txt')
     # The invite is ephemeral test data, never a session or provider credential; keep it out of logs.
     common=('-e','room',invite['room'],'-e','password',invite['password'])
+    # Bring up one joiner at a time: concurrent three-party ICE/SFU negotiations
+    # intermittently left one publisher without remote tracks. Wait for owner setup,
+    # then for a stable two-way decoded stream before admitting the Activity peer.
+    wait_marker('emulator-5554','files/sfu-publisher-ready','owner publisher',120)
     extra=begin('emulator-5558','extra',common)
+    wait_marker('emulator-5554','files/sfu-pair-ready','owner first peer media',120)
+    wait_marker('emulator-5558','files/sfu-pair-ready','extra first peer media',120)
     peer=begin('emulator-5556','peer',common)
     # Keep all three real clients publishing until each receiver sees two distinct
     # remote video tracks; peer additionally proves the Activity lays out both remotes.

@@ -34,6 +34,11 @@ for serial in emulator-5554 emulator-5556 emulator-5558; do
   adb -s "$serial" install -r android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk
   adb -s "$serial" shell pm grant com.lyrnox.qingliao.qa android.permission.CAMERA
   adb -s "$serial" shell pm grant com.lyrnox.qingliao.qa android.permission.RECORD_AUDIO
+  # Remove only this fresh QA package's transient handshake markers so a previous
+  # instrumentation run cannot satisfy the serialized-join gates.
+  adb -s "$serial" shell run-as com.lyrnox.qingliao.qa rm -f \
+    files/sfu-invite.json files/sfu-ready files/sfu-publisher-ready \
+    files/sfu-pair-ready files/sfu-metrics.json
   # The instrumentation launches the peer Activity only after its own persistent
   # test session has been created, so its ChatNet loads the intended cookie.
  done

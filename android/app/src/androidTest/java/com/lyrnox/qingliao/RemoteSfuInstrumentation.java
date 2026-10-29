@@ -102,9 +102,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
         call = (NativeCallSession) field(ui, "nativeCall");
         if (call == null) throw new AssertionError("Activity join View did not create native session");
       }
+      // Publish a safe phase marker after the real signaling/publisher setup. The runner
+      // serializes joiners so both existing media directions stabilize before the third
+      // emulator begins, avoiding three concurrent negotiations racing on the SFU.
+      java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-publisher-ready").toPath(),
+          "publisher-ready".getBytes("UTF-8"));
       long deadline=System.currentTimeMillis()+150000;
       long audioPackets=0,videoBytes=0;
       int renderedRemoteCount=0;
+      boolean pairReadyWritten = false;
       AtomicReference<Boolean> tracksDecoded = new AtomicReference<>(false);
       while(System.currentTimeMillis()<deadline) {
         if(failure.get()!=null) throw new AssertionError("Native call failed: "+failure.get()+"; lastStatus="+status.get());
@@ -153,6 +159,15 @@ public final class RemoteSfuInstrumentation extends Instrumentation {
             AtomicInteger count = framesByTrack.get(track);
             return count != null && count.get() >= 10;
           }));
+          if ((owner || extra) && !pairReadyWritten && renderedRemoteCount >= 1 &&
+              remote.values().stream().allMatch(track -> {
+                AtomicInteger count = framesByTrack.get(track);
+                return count != null && count.get() >= 10;
+              })) {
+            java.nio.file.Files.write(new File(getTargetContext().getFilesDir(), "sfu-pair-ready").toPath(),
+                "pair-media-ready".getBytes("UTF-8"));
+            pairReadyWritten = true;
+          }
         }
         JSONObject stats=stats(call);
         audioPackets=stats.optLong("audioPackets"); videoBytes=stats.optLong("videoBytes");

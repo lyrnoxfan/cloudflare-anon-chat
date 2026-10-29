@@ -32,6 +32,9 @@ import org.webrtc.VideoTrack;
 public final class ChatFragment extends Fragment {
   private final Handler main = new Handler(Looper.getMainLooper());
   private final ExecutorService io = Executors.newFixedThreadPool(3);
+  // Call startup can block on ICE/SDP for many seconds; keep chat refreshes and uploads
+  // from starving the real join action when the room screen has several I/O jobs queued.
+  private final ExecutorService callIo = Executors.newSingleThreadExecutor();
   private NativeCore core;
   private ChatNet net;
   private WebSocket socket;
@@ -750,6 +753,7 @@ public final class ChatFragment extends Fragment {
     if (mediaDialog != null) mediaDialog.dismiss();
     net.close();
     io.shutdownNow();
+    callIo.shutdownNow();
     core.close();
     super.onDestroy();
   }
@@ -1251,7 +1255,7 @@ public final class ChatFragment extends Fragment {
     setStatus("正在准备通话…");
     renderCallPanel();
     try {
-      io.execute(() -> {
+      callIo.execute(() -> {
         try {
           call.start(kind, expectedCallId, targetId);
           main.post(() -> {
