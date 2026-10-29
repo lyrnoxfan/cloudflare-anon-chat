@@ -72,12 +72,18 @@ try:
     # Bring up one joiner at a time: concurrent three-party ICE/SFU negotiations
     # intermittently left one publisher without remote tracks. Wait for owner setup,
     # then for a stable two-way decoded stream before admitting the Activity peer.
-    wait_marker('emulator-5554','files/sfu-publisher-ready','owner publisher',120)
+    # Instrumentation publisher startup itself can take 120s; allow setup overhead
+    # rather than cutting off its own diagnostic timeout.
+    wait_marker('emulator-5554','files/sfu-publisher-ready','owner publisher',140)
     extra=begin('emulator-5558','extra',common)
-    wait_marker('emulator-5554','files/sfu-pair-ready','owner first peer media',120)
-    wait_marker('emulator-5558','files/sfu-pair-ready','extra first peer media',120)
+    # Each participant's receiving-media loop has a 150s deadline. The harness must
+    # wait longer than that so the test, not this outer marker wait, records the result.
+    wait_marker('emulator-5554','files/sfu-pair-ready','owner first peer media',170)
+    wait_marker('emulator-5558','files/sfu-pair-ready','extra first peer media',170)
     peer=begin('emulator-5556','peer',common)
-    wait_marker('emulator-5556','files/sfu-publisher-ready','Activity peer publisher',150)
+    # Activity setup has sequential 45s/45s/30s UI/session waits before its own
+    # 120s publisher-ready timeout. Let instrumentation reach its intended limit.
+    wait_marker('emulator-5556','files/sfu-publisher-ready','Activity peer publisher',260)
     # Keep all three real clients publishing until each receiver sees two distinct
     # remote video tracks; peer additionally proves the Activity lays out both remotes.
     expected={'owner','peer','extra'}; ready=set(); deadline=time.monotonic()+300
