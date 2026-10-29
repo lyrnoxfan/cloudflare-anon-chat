@@ -27,7 +27,11 @@ final class ChatIconDrawable extends Drawable {
     return name.equals("打开房间导航") || name.equals("发起语音通话")
         || name.equals("发起视频通话") || name.equals("更多房间操作")
         || name.equals("添加照片或文件") || name.equals("打开表情")
-        || name.equals("录制语音") || name.equals("发送消息") || name.equals("轻聊房间");
+        || name.equals("录制语音") || name.equals("发送消息") || name.equals("轻聊房间")
+        || name.equals("接听通话") || name.equals("拒绝通话")
+        || name.equals("麦克风开") || name.equals("麦克风静音")
+        || name.equals("摄像头开") || name.equals("摄像头关")
+        || name.equals("切换镜头") || name.equals("挂断通话");
   }
 
   private void lines(Canvas canvas, float... points) {
@@ -79,6 +83,35 @@ final class ChatIconDrawable extends Drawable {
       case "发送消息":
         lines(canvas, 5, 12, 20, 4, 15, 20, 12, 14, 5, 12);
         lines(canvas, 12, 14, 20, 4); break;
+      case "接听通话":
+        lines(canvas, 6, 13, 10, 17, 19, 7); break;
+      case "拒绝通话":
+        lines(canvas, 7, 7, 17, 17); lines(canvas, 17, 7, 7, 17); break;
+      case "麦克风开":
+        canvas.drawRoundRect(8, 3, 16, 15, 4, 4, paint);
+        Path micOn = new Path(); micOn.moveTo(5, 10); micOn.lineTo(5, 12);
+        micOn.cubicTo(5, 21.3f, 19, 21.3f, 19, 12); micOn.lineTo(19, 10);
+        canvas.drawPath(micOn, paint); lines(canvas, 12, 19, 12, 22); lines(canvas, 9, 22, 15, 22); break;
+      case "麦克风静音":
+        canvas.drawRoundRect(8, 3, 16, 15, 4, 4, paint);
+        Path micMuted = new Path(); micMuted.moveTo(5, 10); micMuted.lineTo(5, 12);
+        micMuted.cubicTo(5, 21.3f, 19, 21.3f, 19, 12); micMuted.lineTo(19, 10);
+        canvas.drawPath(micMuted, paint); lines(canvas, 12, 19, 12, 22);
+        lines(canvas, 9, 22, 15, 22); lines(canvas, 4, 4, 20, 20); break;
+      case "摄像头开":
+        canvas.drawRoundRect(2.5f, 6, 15, 18, 2, 2, paint);
+        lines(canvas, 15, 10, 21, 6, 21, 18, 15, 14); break;
+      case "摄像头关":
+        canvas.drawRoundRect(2.5f, 6, 15, 18, 2, 2, paint);
+        lines(canvas, 15, 10, 21, 6, 21, 18, 15, 14); lines(canvas, 4, 4, 20, 20); break;
+      case "切换镜头":
+        lines(canvas, 4, 8, 7, 5, 17, 5, 20, 8); lines(canvas, 20, 8, 17, 8);
+        lines(canvas, 20, 16, 17, 19, 7, 19, 4, 16); lines(canvas, 4, 16, 7, 16); break;
+      case "挂断通话":
+        Path endPhone = new Path(); endPhone.moveTo(4, 14);
+        endPhone.cubicTo(7, 18, 17, 18, 20, 14); endPhone.lineTo(16, 11);
+        endPhone.lineTo(13, 13); endPhone.quadTo(12, 14, 11, 13);
+        endPhone.lineTo(8, 11); endPhone.close(); canvas.drawPath(endPhone, paint); break;
       default: break;
     }
     canvas.restore();

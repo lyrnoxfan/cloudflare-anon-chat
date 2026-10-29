@@ -301,11 +301,41 @@ public final class ChatFragment extends Fragment {
     return b;
   }
 
-  private Button callButton(String title, Runnable action) {
-    Button b = button(title, action);
-    b.setTextSize(11);
-    b.setPadding(dp(4), dp(6), dp(4), dp(6));
+  private Button callButton(String icon, String description, Runnable action, int background) {
+    Button b = new Button(getActivity());
+    b.setText("");
+    b.setAllCaps(false);
+    b.setPadding(0, 0, 0, 0);
+    b.setMinWidth(dp(44));
+    b.setMinimumWidth(dp(44));
+    b.setMinHeight(dp(44));
+    b.setMinimumHeight(dp(44));
+    b.setContentDescription(description);
+    b.setOnClickListener(v -> action.run());
+    setCallButtonDrawable(b, icon, description, background);
     return b;
+  }
+
+  private int callDangerBackground() {
+    return nightMode ? Color.rgb(80, 49, 42) : Color.rgb(239, 216, 205);
+  }
+
+  private void updateCallButton(Button button, String icon, String description, int background) {
+    if (button == null) return;
+    button.setContentDescription(description);
+    setCallButtonDrawable(button, icon, description, background);
+  }
+
+  private void setCallButtonDrawable(Button button, String icon, String description, int background) {
+    int iconColor = description.equals("挂断")
+        ? (nightMode ? Color.rgb(245, 190, 169) : Color.rgb(126, 67, 53)) : ink;
+    Drawable[] layers = new Drawable[] {
+        shape(background, 99),
+        new ChatIconDrawable(icon, iconColor, getResources().getDisplayMetrics().density)
+    };
+    button.setBackground(new RippleDrawable(
+        android.content.res.ColorStateList.valueOf(nightMode ? 0x44ffffff : 0x22000000),
+        new LayerDrawable(layers), null));
   }
 
   private EditText field(String hint, boolean password) {
@@ -352,7 +382,7 @@ public final class ChatFragment extends Fragment {
     header.setMinimumHeight(dp(77));
     Button drawerToggle = iconButton("‹", "打开房间导航", this::openRoomDrawer);
     drawerToggle.setTextSize(31);
-    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(36), dp(40)));
+    header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(44), dp(44)));
     ImageView roomMark = new ImageView(getActivity());
     roomMark.setImageDrawable(new ChatIconDrawable("轻聊房间", green,
         getResources().getDisplayMetrics().density));
@@ -394,11 +424,11 @@ public final class ChatFragment extends Fragment {
     heading.setOnClickListener(v -> shareRoom());
     header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
     Button audioAction = iconButton("☎", "发起语音通话", () -> startCallFromToolbar("audio"));
-    header.addView(audioAction, new LinearLayout.LayoutParams(dp(35), dp(40)));
+    header.addView(audioAction, new LinearLayout.LayoutParams(dp(44), dp(44)));
     Button videoAction = iconButton("▣", "发起视频通话", () -> startCallFromToolbar("video"));
-    header.addView(videoAction, new LinearLayout.LayoutParams(dp(35), dp(40)));
+    header.addView(videoAction, new LinearLayout.LayoutParams(dp(44), dp(44)));
     Button more = iconButton("···", "更多房间操作", this::roomMenu);
-    header.addView(more, new LinearLayout.LayoutParams(dp(35), dp(40)));
+    header.addView(more, new LinearLayout.LayoutParams(dp(44), dp(44)));
     content.addView(header);
     View headerLine = new View(getActivity());
     headerLine.setBackgroundColor(line);
@@ -425,7 +455,7 @@ public final class ChatFragment extends Fragment {
     callVideoContainer.setBackground(shape(Color.rgb(38, 48, 41), 18));
     callVideoContainer.setClipToOutline(true);
     callVideoGrid = new GridLayout(getActivity());
-    callVideoGrid.setColumnCount(2);
+    callVideoGrid.setColumnCount(1);
     callVideoGrid.setUseDefaultMargins(false);
     callVideoContainer.addView(callVideoGrid, new LinearLayout.LayoutParams(-1, -1));
     LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(-1, dp(220));
@@ -435,19 +465,21 @@ public final class ChatFragment extends Fragment {
     callButtonScroll.setHorizontalScrollBarEnabled(false);
     callButtons = new LinearLayout(getActivity());
     callButtons.setGravity(Gravity.CENTER_VERTICAL);
-    callJoin = callButton("接听 / 加入", this::acceptObservedCall);
-    callDecline = callButton("拒绝", this::declineObservedCall);
-    callMute = callButton("静音", this::toggleCallMicrophone);
-    callCamera = callButton("关摄像头", this::toggleCallCamera);
-    callFlip = callButton("切后摄", this::flipCallCamera);
-    callEnd = callButton("挂断", this::stopNativeCall);
+    callJoin = callButton("接听通话", "接听 / 加入", this::acceptObservedCall, pale);
+    callDecline = callButton("拒绝通话", "拒绝", this::declineObservedCall, pale);
+    callMute = callButton("麦克风开", "静音", this::toggleCallMicrophone, pale);
+    callCamera = callButton("摄像头开", "关摄像头", this::toggleCallCamera, pale);
+    callFlip = callButton("切换镜头", "切后摄", this::flipCallCamera, pale);
+    callEnd = callButton("挂断通话", "挂断", this::stopNativeCall, callDangerBackground());
+    callButtons.setGravity(Gravity.CENTER);
     for (Button control : new Button[] {callJoin, callDecline, callMute, callCamera, callFlip, callEnd}) {
-      LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(dp(76), dp(40));
-      controlParams.rightMargin = dp(5);
+      LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+      controlParams.leftMargin = dp(2);
+      controlParams.rightMargin = dp(2);
       callButtons.addView(control, controlParams);
     }
-    callButtonScroll.addView(callButtons, new HorizontalScrollView.LayoutParams(-2, dp(42)));
-    callPanel.addView(callButtonScroll, new LinearLayout.LayoutParams(-1, dp(44)));
+    callButtonScroll.addView(callButtons, new HorizontalScrollView.LayoutParams(-2, dp(50)));
+    callPanel.addView(callButtonScroll, new LinearLayout.LayoutParams(-1, dp(52)));
     content.addView(callPanel, new LinearLayout.LayoutParams(-1, -2));
     older = button("加载更早消息", () -> history(true));
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
@@ -698,7 +730,7 @@ public final class ChatFragment extends Fragment {
     LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, -2, 1);
     ip.leftMargin = dp(6);
     ip.rightMargin = dp(6);
-    composerPill.addView(attach, new LinearLayout.LayoutParams(dp(37), dp(46)));
+    composerPill.addView(attach, new LinearLayout.LayoutParams(dp(44), dp(46)));
     composerPill.addView(input, ip);
     emojiButton = iconButton("☻", "打开表情", () -> {
       boolean show = emojiPanel.getVisibility() != View.VISIBLE;
@@ -708,12 +740,12 @@ public final class ChatFragment extends Fragment {
       }
       emojiPanel.setVisibility(show ? View.VISIBLE : View.GONE);
     });
-    composerPill.addView(emojiButton, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    composerPill.addView(emojiButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
     voice = iconButton("🎙", "录制语音", this::startRecording);
-    composerPill.addView(voice, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    composerPill.addView(voice, new LinearLayout.LayoutParams(dp(44), dp(44)));
     send = iconButton("➤", "发送消息", this::sendText);
     send.setVisibility(View.GONE);
-    composerPill.addView(send, new LinearLayout.LayoutParams(dp(38), dp(44)));
+    composerPill.addView(send, new LinearLayout.LayoutParams(dp(44), dp(44)));
     composer.addView(composerPill, new LinearLayout.LayoutParams(0, -2, 1));
     content.addView(composer);
     input.addTextChangedListener(
@@ -1496,14 +1528,19 @@ public final class ChatFragment extends Fragment {
       updateCallVideoVisibility("video".equals(kind));
       callJoin.setVisibility(View.GONE);
       callDecline.setVisibility(View.GONE);
-      callMute.setText(nativeCall.isMicrophoneEnabled() ? "静音" : "开麦");
-      callCamera.setText(nativeCall.isCameraEnabled() ? "关摄像头" : "开摄像头");
+      updateCallButton(callMute,
+          nativeCall.isMicrophoneEnabled() ? "麦克风开" : "麦克风静音",
+          nativeCall.isMicrophoneEnabled() ? "静音" : "开麦", pale);
+      updateCallButton(callCamera,
+          nativeCall.isCameraEnabled() ? "摄像头开" : "摄像头关",
+          nativeCall.isCameraEnabled() ? "关摄像头" : "开摄像头", pale);
       callMute.setEnabled(nativeCall.isMicrophoneReady());
       callCamera.setEnabled("video".equals(kind) && nativeCall.isCameraReady());
       callMute.setVisibility(View.VISIBLE);
       callCamera.setVisibility("video".equals(kind) ? View.VISIBLE : View.GONE);
       callFlip.setVisibility("video".equals(kind) && nativeCall.isCameraReady() ? View.VISIBLE : View.GONE);
-      callFlip.setText(nativeCall.isFrontFacing() ? "切后摄" : "切前摄");
+      updateCallButton(callFlip, "切换镜头",
+          nativeCall.isFrontFacing() ? "切后摄" : "切前摄", pale);
       callEnd.setVisibility(View.VISIBLE);
       callPanel.setVisibility(View.VISIBLE);
       return;
@@ -1522,7 +1559,7 @@ public final class ChatFragment extends Fragment {
       JSONArray members = observedCall.optJSONArray("members");
       int count = members == null ? 0 : members.length();
       callLabel.setText(("video".equals(kind) ? "视频" : "语音") + "通话 · " + count + " 人已加入");
-      callJoin.setText(invite.optBoolean("invited") ? "接听" : "加入");
+      callJoin.setContentDescription(invite.optBoolean("invited") ? "接听来电" : "加入通话");
       callJoin.setVisibility(View.VISIBLE);
       callDecline.setVisibility(invite.optBoolean("invited") ? View.VISIBLE : View.GONE);
       callMute.setVisibility(View.GONE);
@@ -1564,7 +1601,8 @@ public final class ChatFragment extends Fragment {
         try {
           boolean frontFacing = call.flipCamera();
           main.post(() -> {
-            if (nativeCall == call && callFlip != null) callFlip.setText(frontFacing ? "切后摄" : "切前摄");
+            if (nativeCall == call && callFlip != null) updateCallButton(callFlip, "切换镜头",
+                frontFacing ? "切后摄" : "切前摄", pale);
           });
         } catch (Exception e) {
           main.post(() -> { if (getActivity() != null) toast("切换摄像头失败：" + e.getMessage()); });
@@ -1582,8 +1620,10 @@ public final class ChatFragment extends Fragment {
           boolean enabled = camera ? call.toggleCamera() : call.toggleMicrophone();
           main.post(() -> {
             if (nativeCall != call) return;
-            if (camera && callCamera != null) callCamera.setText(enabled ? "关摄像头" : "开摄像头");
-            if (!camera && callMute != null) callMute.setText(enabled ? "静音" : "开麦");
+            if (camera && callCamera != null) updateCallButton(callCamera,
+                enabled ? "摄像头开" : "摄像头关", enabled ? "关摄像头" : "开摄像头", pale);
+            if (!camera && callMute != null) updateCallButton(callMute,
+                enabled ? "麦克风开" : "麦克风静音", enabled ? "静音" : "开麦", pale);
           });
         } catch (Exception e) { main.post(() -> toast(e.getMessage())); }
       });
@@ -1672,7 +1712,7 @@ public final class ChatFragment extends Fragment {
     if (localVideoCell != null) tiles.add(localVideoCell);
     for (RemoteRendererBinding binding : remoteRenderers.values()) tiles.add(binding.cell);
     int count = tiles.size();
-    int columns = count <= 1 ? 1 : 2;
+    int columns = callGridColumns(count);
     callVideoGrid.setColumnCount(columns);
     callVideoGrid.setRowCount(Math.max(1, (count + columns - 1) / columns));
     resizeCallVideoGrid();
@@ -1688,13 +1728,31 @@ public final class ChatFragment extends Fragment {
     resizeCallVideoGrid();
   }
 
+  /** Match the web grid's 140dp minimum tile width while limiting very wide displays to four columns. */
+  private int callGridColumns(int count) {
+    if (count <= 1) return 1;
+    int width = callVideoContainer == null ? 0 : callVideoContainer.getWidth();
+    if (width <= 0) {
+      width = root == null ? getResources().getDisplayMetrics().widthPixels : root.getWidth();
+      width = Math.max(dp(140), width - dp(32));
+    }
+    int maxColumns = Math.max(1, Math.min(4, width / dp(140)));
+    return Math.max(1, Math.min(count, maxColumns));
+  }
+
   /** Keep the native participant grid readable on short screens without hiding the chat.
    * The web call panel is capped at 46vh; reserve a little room for its heading and controls.
    */
   private void resizeCallVideoGrid() {
     if (callVideoContainer == null) return;
     int count = callVideoGrid == null ? 0 : callVideoGrid.getChildCount();
-    int rows = Math.max(1, (count + 1) / 2);
+    int desiredColumns = callGridColumns(count);
+    if (count > 0 && callVideoGrid.getColumnCount() != desiredColumns) {
+      rebuildCallVideoGrid();
+      return;
+    }
+    int columns = callVideoGrid == null ? 1 : Math.max(1, callVideoGrid.getColumnCount());
+    int rows = Math.max(1, (count + columns - 1) / columns);
     int viewport = root == null ? 0 : root.getHeight();
     if (viewport <= 0) viewport = getResources().getDisplayMetrics().heightPixels;
     int target = Math.min(dp(250) * rows, Math.round(viewport * 0.42f));
