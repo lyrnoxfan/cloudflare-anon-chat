@@ -246,6 +246,15 @@ try:
     else: raise AssertionError('Inline video did not start/decode')
     capture('06-inline-video')
     passed('fixture video starts through the actual inline Android player')
+    # MediaController is its own Android accessibility window, so a screenshot may
+    # show the transcript while UIAutomator can see only playback controls. Dismiss
+    # that observed transient window before locating/swiping message cards.
+    controller = tree()
+    if any(n.get('class') == 'android.widget.MediaController' for n in controller.iter('node')):
+        capture('06-video-controller-before-dismiss')
+        adb('shell', 'input', 'keyevent', '4')
+        locate('消息内容', 'content-desc')
+        capture('06-video-controller-dismissed')
     # Move to the preceding media messages without tapping outside the scroll view.
     for _ in range(5):
         try:
