@@ -1,0 +1,37 @@
+name: Android packet-outage acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-outage
+  cancel-in-progress: false
+jobs:
+  outage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Locked local Worker dependencies
+        run: npm install --global pnpm@10.32.1 && pnpm install --frozen-lockfile
+      - name: Download frozen published QA APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download android-v0.3.3 --repo "$GITHUB_REPOSITORY" --pattern 'qingliao-android-0.3.3-qa-4cbbff5d923499215a07df835430311f358527a6.apk'
+      - name: Isolated AOSP emulator toolchain
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools" "system-images;android-29;default;x86_64"'
+      - name: Actual packet interruption and native UI recovery
+        run: bash android/qa-fixture/network-outage.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: android-outage-${{ github.sha }}
+          path: android/evidence/outage/
+          if-no-files-found: warn
+          retention-days: 7
