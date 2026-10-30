@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Visual state capture of the exact published QA APK; no build/deploy/SFU.
+# Visual state capture of the source-bound candidate QA APK; no deploy/SFU.
 set -euo pipefail
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 export QA_EVIDENCE="$PWD/android/evidence/visual"

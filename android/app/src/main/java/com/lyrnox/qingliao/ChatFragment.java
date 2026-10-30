@@ -611,11 +611,15 @@ public final class ChatFragment extends Fragment {
     renderPendingTexts();
     emojiPanel = vertical();
     emojiPanel.setVisibility(View.GONE);
+    emojiPanel.setPadding(dp(8), dp(8), dp(8), dp(8));
+    emojiPanel.setBackground(shape(bg, 22));
+    emojiPanel.setElevation(dp(12));
+    emojiPanel.setClipToOutline(true);
     emojiScroll = new ScrollView(getActivity());
     emojiScroll.setFillViewport(false);
     emojiScroll.setVerticalScrollBarEnabled(false);
     GridLayout grid = new GridLayout(getActivity());
-    grid.setColumnCount(7);
+    grid.setColumnCount(6);
     grid.setPadding(dp(6), dp(6), dp(6), dp(6));
     for (int i = 0; i < emojiData.length(); i++) {
       try {
@@ -645,7 +649,11 @@ public final class ChatFragment extends Fragment {
     }
     emojiScroll.addView(grid);
     emojiPanel.addView(emojiScroll, new LinearLayout.LayoutParams(-1, dp(220)));
-    content.addView(emojiPanel);
+    FrameLayout.LayoutParams emojiParams = new FrameLayout.LayoutParams(
+        Math.min(dp(284), getResources().getDisplayMetrics().widthPixels - dp(20)), -2, Gravity.BOTTOM | Gravity.END);
+    emojiParams.rightMargin = dp(10);
+    emojiParams.bottomMargin = dp(77);
+    root.addView(emojiPanel, emojiParams);
     replyDraft = new LinearLayout(getActivity());
     replyDraft.setGravity(Gravity.CENTER_VERTICAL);
     replyDraft.setPadding(dp(14), dp(8), dp(8), dp(8));
@@ -1192,7 +1200,7 @@ public final class ChatFragment extends Fragment {
     drawerOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
     drawerPanel = vertical();
     drawerPanel.setPadding(dp(20), dp(24), dp(18), dp(20));
-    drawerPanel.setBackground(shape(bg, 0));
+    drawerPanel.setBackground(shape(bg, 28));
     drawerPanel.setElevation(dp(12));
     TextView brand = text("轻聊", 22, ink);
     brand.setTypeface(null, Typeface.BOLD);
@@ -1220,10 +1228,13 @@ public final class ChatFragment extends Fragment {
     fp.topMargin = dp(18);
     drawerPanel.addView(footer, fp);
     ScrollView drawerScroll = new ScrollView(getActivity());
-    drawerScroll.setFillViewport(true);
+    drawerScroll.setFillViewport(false);
+    drawerScroll.setBackground(shape(bg, 28));
+    drawerScroll.setClipToOutline(true);
     drawerScroll.addView(drawerPanel, new ScrollView.LayoutParams(-1, -2));
     FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
-        Math.min(dp(320), getResources().getDisplayMetrics().widthPixels - dp(48)), -1, Gravity.START);
+        Math.min(dp(320), getResources().getDisplayMetrics().widthPixels - dp(32)), -2, Gravity.TOP | Gravity.START);
+    panelParams.setMargins(dp(16), dp(16), dp(16), dp(16));
     drawerOverlay.addView(drawerScroll, panelParams);
     root.addView(drawerOverlay, new FrameLayout.LayoutParams(-1, -1));
     refreshRoomDrawer();
@@ -1252,6 +1263,7 @@ public final class ChatFragment extends Fragment {
   private void openRoomDrawer() {
     if (drawerOverlay != null) {
       refreshRoomDrawer();
+      if (emojiPanel != null) emojiPanel.setVisibility(View.GONE);
       drawerOverlay.setVisibility(View.VISIBLE);
       drawerPanel.setTranslationX(-dp(12));
       drawerPanel.animate().translationX(0).setDuration(140).start();
@@ -1812,7 +1824,7 @@ public final class ChatFragment extends Fragment {
     if (emojiScroll == null) return;
     int viewport = root == null ? 0 : root.getHeight();
     if (viewport <= 0) viewport = getResources().getDisplayMetrics().heightPixels;
-    int target = Math.max(dp(84), Math.min(dp(220), viewport - dp(190)));
+    int target = Math.max(dp(84), Math.min(dp(420), viewport - dp(190)));
     ViewGroup.LayoutParams params = emojiScroll.getLayoutParams();
     if (params != null && params.height != target) {
       params.height = target;
@@ -2724,11 +2736,15 @@ public final class ChatFragment extends Fragment {
         card.setFocusable(true);
         bubbleView = card;
       }
-      wrap.addView(bubbleView);
+      LinearLayout.LayoutParams bubbleParams = new LinearLayout.LayoutParams(-2, -2);
+      bubbleParams.gravity = mine ? Gravity.END : Gravity.START;
+      wrap.addView(bubbleView, bubbleParams);
       if (groupEnd) {
         TextView stamp = text(time(ts, "HH:mm"), 10, muted);
         stamp.setPadding(dp(12), dp(3), dp(12), 0);
-        wrap.addView(stamp);
+        LinearLayout.LayoutParams stampParams = new LinearLayout.LayoutParams(-2, -2);
+        stampParams.gravity = mine ? Gravity.END : Gravity.START;
+        wrap.addView(stamp, stampParams);
       }
       LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1f);
       messageRow.addView(wrap, wp);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Frozen QA APK visual state capture, real local Worker; no SFU/production."""
+"""QA source-bound APK visual state capture, real local Worker; no SFU/production."""
 import os,json,re,subprocess,time,xml.etree.ElementTree as ET
 from pathlib import Path
 OUT=Path(os.environ['QA_EVIDENCE']);OUT.mkdir(parents=True,exist_ok=True)
@@ -41,7 +41,7 @@ try:
   click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
   # The next menu is on the visible own message, not the reply preview.
   tap(find('visual-'+name+'-message'),long=True);click('删除');find('删除这条消息？其他成员也会看到删除状态。');capture(name+'-delete');click('删除');checks.append('send/menu/reply/delete')
-  results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, frozen4cbbff5 QA APK, local real Worker'})
+  results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, source-bound candidate QA APK, local real Worker'})
  (OUT/'native-visual.json').write_text(json.dumps({'status':'passed','results':results,'notCovered':['physical handset','SFU/call media','media codec and audio routes','complete pixel parity']},ensure_ascii=False,indent=2))
 except BaseException as e:
  try:capture('failure')
