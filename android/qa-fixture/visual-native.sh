@@ -23,8 +23,18 @@ for i in $(seq 1 120); do
  kill -0 "$emulator_pid" 2>/dev/null || { cat "$QA_EVIDENCE/emulator.log"; exit 1; }; sleep 2
 done
 [[ "$booted" == true ]]
-adb root; adb wait-for-device
-[[ "$(adb shell id -u | tr -d '\r')" == 0 ]]
+# adbd can close its boot-time connection while root restarts it. Verify the
+# resulting UID with bounded reconnects; do not mistake transport closure for test failure.
+root_ready=false
+for attempt in $(seq 1 12); do
+  timeout 10 adb wait-for-device || true
+  if [[ "$(timeout 5 adb shell id -u 2>/dev/null | tr -d '\r')" == 0 ]]; then
+    root_ready=true; break
+  fi
+  timeout 10 adb root || true
+  sleep 2
+done
+[[ "$root_ready" == true ]] || { echo 'AOSP CI adbd root unavailable after bounded reconnect'; exit 1; }
 adb shell input keyevent 82
 for setting in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global "$setting" 0; done
 adb shell wm size 720x1440; adb shell wm density 320

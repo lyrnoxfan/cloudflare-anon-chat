@@ -40,9 +40,18 @@ done
 # The disposable AOSP API29 image locks night-mode changes against the shell UID.
 # Run ADB as root on this CI-owned debug image only, so the system configuration
 # event can actually be requested; the installed application remains unprivileged.
-adb root
-adb wait-for-device
-[[ "$(adb shell id -u | tr -d '\r')" == 0 ]]
+# adbd can close its boot-time connection while root restarts it. Verify the
+# resulting UID with bounded reconnects; do not mistake transport closure for test failure.
+root_ready=false
+for attempt in $(seq 1 12); do
+  timeout 10 adb wait-for-device || true
+  if [[ "$(timeout 5 adb shell id -u 2>/dev/null | tr -d '\r')" == 0 ]]; then
+    root_ready=true; break
+  fi
+  timeout 10 adb root || true
+  sleep 2
+done
+[[ "$root_ready" == true ]] || { echo 'AOSP CI adbd root unavailable after bounded reconnect'; exit 1; }
 adb shell input keyevent 82
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
