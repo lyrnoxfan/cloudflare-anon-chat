@@ -297,7 +297,9 @@ try:
         assert len(clocks) == 1, 'Audio elapsed clock missing or ambiguous: ' + repr(clocks)
         m, sec = map(int, clocks[0].split(':'))
         return m * 60 + sec
-    tap_node(scroll_locate('播放语音', 'content-desc', direction='down'))
+    # Configuration recreation now lays short histories out from the top, like web.
+    # Find the later voice card by moving toward newer messages, not older ones.
+    tap_node(scroll_locate('播放语音', 'content-desc', direction='up'))
     locate('暂停语音', 'content-desc', timeout=35)
     before = audio_elapsed(tree())
     time.sleep(3)
@@ -327,7 +329,7 @@ try:
     adb('shell','input','keyevent','3')
     time.sleep(1)
     adb('shell','am','start','-W','-n',PKG+'/com.lyrnox.qingliao.MainActivity')
-    scroll_locate('播放语音', 'content-desc', direction='down')
+    scroll_locate('播放语音', 'content-desc', direction='up')
     assert not any(n.get('content-desc') == '暂停语音' for n in tree().iter('node'))
     passed('Home stops audio and foreground return does not silently resume it')
     # Save through the real system document picker; compare output bytes independently.
