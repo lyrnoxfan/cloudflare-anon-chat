@@ -22,6 +22,20 @@ def tap(n,long=False):
  if long:sh('input','swipe',x,y,x,y,'1300')
  else:sh('input','tap',x,y)
 def click(key,attr='text'):tap(find(key,attr))
+def message_menu(text):
+ # A send acknowledgement can replace ListView children between the dump and
+ # the held touch. Retry the same gesture once against a fresh visible node;
+ # never skip the required menu or weaken reply/delete assertions.
+ attempts=[]
+ for attempt in range(2):
+  n=find(text); tap(n,long=True)
+  try:
+   find('回复',timeout=5); return
+  except AssertionError:
+   capture('menu-attempt-'+str(len(results))+'-'+str(attempt))
+   attempts.append({'configuration':len(results),'attempt':attempt+1,'bounds':n.get('bounds')})
+   (OUT/'menu-retry.json').write_text(json.dumps(attempts,ensure_ascii=False,indent=2))
+ raise AssertionError('message menu still absent after fresh-node long press: '+text)
 def back():sh('input','keyevent','4')
 def capture(name):
  time.sleep(.3);t=tree();(OUT/(name+'.xml')).write_bytes(ET.tostring(t));(OUT/(name+'.png')).write_bytes(adb('exec-out','screencap','-p'))
@@ -41,9 +55,9 @@ try:
   click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');
   # A short history must occupy the top of the message viewport, not hug the composer.
   bounds=list(map(int,re.findall(r'\d+',msg.get('bounds'))));assert bounds[1] < h*.55, ('short history bottom anchored',bounds,h)
-  tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
+  message_menu('visual-'+name+'-message');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
   # The next menu is on the visible own message, not the reply preview.
-  tap(find('visual-'+name+'-message'),long=True);click('删除');find('删除这条消息？');capture(name+'-delete');click('删除消息');checks.append('send/menu/reply/delete')
+  message_menu('visual-'+name+'-message');click('删除');find('删除这条消息？');capture(name+'-delete');click('删除消息');checks.append('send/menu/reply/delete')
   results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, source-bound candidate QA APK, local real Worker'})
  (OUT/'native-visual.json').write_text(json.dumps({'status':'passed','results':results,'notCovered':['physical handset','SFU/call media','media codec and audio routes','complete pixel parity']},ensure_ascii=False,indent=2))
 except BaseException as e:
