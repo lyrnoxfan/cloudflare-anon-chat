@@ -28,8 +28,8 @@ adb shell input keyevent 82
 for setting in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global "$setting" 0; done
 adb shell wm size 720x1440; adb shell wm density 320
 adb reverse tcp:8000 tcp:8000
-apk='qingliao-android-0.3.3-qa-4cbbff5d923499215a07df835430311f358527a6.apk'
-printf '20f23fea8c403c3ec4ca3ca293f1dc1f0e23f7f4d9bdcc25b72f87c7a75c4d2a  %s\n' "$apk" | sha256sum -c - | tee "$QA_EVIDENCE/apk-checksum.txt"
+apk='android/app/build/outputs/apk/qa/app-qa.apk'
+sha256sum "$apk" | tee "$QA_EVIDENCE/apk-checksum.txt"
 adb install "$apk"
 node node_modules/wrangler/bin/wrangler.js d1 migrations apply chat --local --config android/qa-fixture/wrangler.local.json --persist-to "$RUNNER_TEMP/visual-worker" > "$QA_EVIDENCE/migrations.log" 2>&1
 node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 8000 --config android/qa-fixture/wrangler.local.json --persist-to "$RUNNER_TEMP/visual-worker" --var "APP_SECRET:$(openssl rand -hex 32)" > "$QA_EVIDENCE/worker.log" 2>&1 &
@@ -38,5 +38,5 @@ up=false
 for i in $(seq 1 60); do if curl -fsS http://127.0.0.1:8000/ >/dev/null; then up=true; break; fi; kill -0 "$worker_pid"; sleep 1; done
 [[ "$up" == true ]]
 git rev-parse HEAD > "$QA_EVIDENCE/harness-commit.txt"
-printf '%s\n' '4cbbff5d923499215a07df835430311f358527a6' > "$QA_EVIDENCE/app-source-commit.txt"
+git rev-parse HEAD > "$QA_EVIDENCE/app-source-commit.txt"
 python3 android/qa-fixture/visual-native.py | tee "$QA_EVIDENCE/outage.txt"

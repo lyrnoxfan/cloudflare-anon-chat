@@ -6,5 +6,5 @@
     <item name="android:navigationBarColor">#20291f</item>
     <item name="android:statusBarColor">#20291f</item>
     <item name="android:windowBackground">#20291f</item>
-  </style>
+  <item name="android:alertDialogTheme">@style/ChatDialogTheme</item></style>
 </resources>

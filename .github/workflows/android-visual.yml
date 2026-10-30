@@ -1,4 +1,4 @@
-name: Android frozen APK visual states
+name: Android isolated visual acceptance
 on:
   workflow_dispatch:
 permissions:
@@ -9,7 +9,7 @@ concurrency:
 jobs:
   outage:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       CI: 'true'
       WRANGLER_SEND_METRICS: 'false'
@@ -20,18 +20,25 @@ jobs:
           node-version: '22'
       - name: Locked local Worker dependencies
         run: npm install --global pnpm@10.32.1 && pnpm install --frozen-lockfile
-      - name: Download frozen published QA APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download android-v0.3.3 --repo "$GITHUB_REPOSITORY" --pattern 'qingliao-android-0.3.3-qa-4cbbff5d923499215a07df835430311f358527a6.apk'
-      - name: Isolated AOSP emulator toolchain
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools" "system-images;android-29;default;x86_64"'
+      - name: JDK 17
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '17.0.14+7'
+      - name: Isolated Android toolchain
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" "emulator" "system-images;android-29;default;x86_64"'
+      - name: Build candidate after visual fix
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew --no-daemon assembleQa lintQa
       - name: Capture native page and dialog states
         run: bash android/qa-fixture/visual-native.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: android-visual-${{ github.sha }}
-          path: android/evidence/visual/
+          path: |
+            android/evidence/visual/
+            android/app/build/outputs/apk/qa/app-qa.apk
+            android/app/build/reports/lint-results-qa.txt
           if-no-files-found: warn
           retention-days: 7

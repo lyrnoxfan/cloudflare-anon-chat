@@ -38,7 +38,7 @@ try:
   click('更改昵称','content-desc');capture(name+'-rename');click('取消');checks.append('rename dialog')
   click('人在线；点击选择一对一通话对象','contains-desc');capture(name+'-members');click('知道了');checks.append('member range dialog')
   click('打开表情','content-desc');find('插入表情 😀','content-desc');capture(name+'-emoji');click('打开表情','content-desc');checks.append('emoji viewport')
-  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');back()
+  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
   # The next menu is on the visible own message, not the reply preview.
   tap(find('visual-'+name+'-message'),long=True);click('删除');find('删除这条消息？其他成员也会看到删除状态。');capture(name+'-delete');click('删除');checks.append('send/menu/reply/delete')
   results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, frozen4cbbff5 QA APK, local real Worker'})
