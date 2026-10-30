@@ -493,9 +493,9 @@ public final class ChatFragment extends Fragment {
     // Match public/style.css mobile #messages insets.
     list.setPadding(dp(13), dp(14), dp(13), dp(20));
     list.setClipToPadding(false);
-    // Keep the tail anchored while the composer/IME changes the available height.
-    // A one-shot setSelection can otherwise be overwritten by ListView's resize layout.
-    list.setStackFromBottom(true);
+    // Like the web message list, short histories start at the top. Transcript mode
+    // and the resize listener still follow the tail when a long history or IME resizes.
+    list.setStackFromBottom(false);
     list.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
     list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
       if (b - t != ob - ot && followLatestMessages) scrollToLatestMessage();
@@ -1125,6 +1125,60 @@ public final class ChatFragment extends Fragment {
         });
   }
 
+  private LinearLayout dialogContent(String eyebrow, String title, String description) {
+    LinearLayout body = vertical();
+    body.setPadding(dp(24), dp(24), dp(24), dp(8));
+    if (!eyebrow.isEmpty()) {
+      TextView overline = text(eyebrow, 11, muted);
+      overline.setPadding(0, 0, 0, dp(8));
+      body.addView(overline);
+    }
+    TextView heading = text(title, 22, ink);
+    heading.setTypeface(null, Typeface.BOLD);
+    heading.setPadding(0, 0, 0, dp(16));
+    body.addView(heading);
+    if (!description.isEmpty()) {
+      TextView detail = text(description, 13, muted);
+      detail.setLineSpacing(dp(3), 1);
+      detail.setPadding(0, 0, 0, dp(8));
+      body.addView(detail);
+    }
+    return body;
+  }
+
+  private void addDialogField(LinearLayout body, String label, EditText input) {
+    TextView caption = text(label, 12, ink);
+    caption.setPadding(0, dp(6), 0, dp(5));
+    body.addView(caption);
+    body.addView(input, new LinearLayout.LayoutParams(-1, dp(48)));
+  }
+
+  private void showChatDialog(AlertDialog dialog) {
+    dialog.show();
+    Window window = dialog.getWindow();
+    if (window != null) window.setLayout(
+        Math.min(dp(420), getResources().getDisplayMetrics().widthPixels - dp(32)), -2);
+    Button negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+    Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+    if (negative != null && positive != null && negative.getParent() instanceof LinearLayout
+        && negative.getParent() == positive.getParent()) {
+      LinearLayout bar = (LinearLayout) negative.getParent();
+      bar.setOrientation(LinearLayout.HORIZONTAL);
+      bar.setPadding(dp(24), dp(8), dp(24), dp(20));
+      for (int i = 0; i < bar.getChildCount(); i++) {
+        View child = bar.getChildAt(i);
+        if (child != negative && child != positive) child.setVisibility(View.GONE);
+      }
+      for (Button button : new Button[] {negative, positive}) {
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        if (button == negative) params.rightMargin = dp(8);
+        button.setLayoutParams(params);
+      }
+    }
+  }
+
   private void nicknameDialog(boolean required) {
     if (required) {
       showSessionGate();
@@ -1134,14 +1188,12 @@ public final class ChatFragment extends Fragment {
     EditText name = field("昵称（最多 32 字）", false);
     name.setText(nickname);
     name.setFilters(new InputFilter[] {new InputFilter.LengthFilter(32)});
-    LinearLayout content = vertical();
-    content.setPadding(dp(20), dp(8), dp(20), 0);
-    content.addView(name);
+    LinearLayout content = dialogContent("当前身份仅保存在会话中", "修改昵称", "");
+    addDialogField(content, "昵称", name);
     AlertDialog d =
         new AlertDialog.Builder(getActivity())
-            .setTitle(required ? "欢迎来到轻聊" : "修改昵称")
             .setView(content)
-            .setPositiveButton("进入", null)
+            .setPositiveButton("保存昵称", null)
             .setNegativeButton("取消", (x, w) -> {})
             .create();
     nicknamePrompt = d;
@@ -1188,7 +1240,7 @@ public final class ChatFragment extends Fragment {
                             } else enter();
                           });
                     }));
-    d.show();
+    showChatDialog(d);
   }
 
   private void buildRoomDrawer() {
@@ -1202,31 +1254,32 @@ public final class ChatFragment extends Fragment {
     drawerPanel.setPadding(dp(20), dp(24), dp(18), dp(20));
     drawerPanel.setBackground(shape(bg, 28));
     drawerPanel.setElevation(dp(12));
-    TextView brand = text("轻聊", 22, ink);
+    LinearLayout brandRow = new LinearLayout(getActivity());
+    brandRow.setGravity(Gravity.CENTER_VERTICAL);
+    TextView brand = text("· 轻聊", 22, ink);
     brand.setTypeface(null, Typeface.BOLD);
-    drawerPanel.addView(brand);
-    TextView hint = text("房间与成员", 13, muted);
-    LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
-    hp.topMargin = dp(3);
-    drawerPanel.addView(hint, hp);
-    TextView roomCard = text("", 14, ink);
-    roomCard.setId(View.generateViewId());
-    roomCard.setPadding(dp(14), dp(14), dp(14), dp(14));
-    roomCard.setBackground(shape(pale, 18));
-    LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
-    rp.topMargin = dp(20);
-    drawerPanel.addView(roomCard, rp);
-    drawerPanel.setTag(roomCard);
-    addDrawerAction("公共大厅", () -> switchRoom("lobby"));
-    addDrawerAction("通过房号加入", () -> { closeRoomDrawer(); joinDialog(""); });
-    addDrawerAction("创建私密房间", () -> { closeRoomDrawer(); createDialog(); });
-    addDrawerAction("在线成员", () -> { closeRoomDrawer(); showMembers(); });
-    addDrawerAction("复制房间链接", () -> { closeRoomDrawer(); shareRoom(); });
-    addDrawerAction("更改昵称", () -> { closeRoomDrawer(); nicknameDialog(false); });
-    TextView footer = text("聊天与房间操作", 12, muted);
-    LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
-    fp.topMargin = dp(18);
-    drawerPanel.addView(footer, fp);
+    brandRow.addView(brand);
+    TextView caption = text("随时聊两句", 11, muted);
+    caption.setPadding(dp(8), 0, 0, 0);
+    brandRow.addView(caption);
+    drawerPanel.addView(brandRow);
+    TextView hint = text("聊天室", 11, muted);
+    hint.setPadding(dp(10), dp(20), 0, dp(8));
+    drawerPanel.addView(hint);
+    Button lobby = addDrawerAction("公共大厅", () -> switchRoom("lobby"));
+    drawerPanel.setTag(lobby);
+    addDrawerAction("创建私人房间", () -> { closeRoomDrawer(); createDialog(); });
+    LinearLayout profile = vertical();
+    profile.setPadding(dp(14), dp(10), dp(14), dp(10));
+    profile.setBackground(shape(pale, 20));
+    profile.addView(text("修改昵称", 14, ink));
+    profile.addView(text("当前身份仅保存在会话中", 10, muted));
+    profile.setContentDescription("修改昵称");
+    profile.setFocusable(true);
+    profile.setOnClickListener(v -> { closeRoomDrawer(); nicknameDialog(false); });
+    LinearLayout.LayoutParams profileParams = new LinearLayout.LayoutParams(-1, -2);
+    profileParams.topMargin = dp(20);
+    drawerPanel.addView(profile, profileParams);
     ScrollView drawerScroll = new ScrollView(getActivity());
     drawerScroll.setFillViewport(false);
     drawerScroll.setBackground(shape(bg, 28));
@@ -1240,7 +1293,7 @@ public final class ChatFragment extends Fragment {
     refreshRoomDrawer();
   }
 
-  private void addDrawerAction(String label, Runnable action) {
+  private Button addDrawerAction(String label, Runnable action) {
     Button b = button(label, action);
     b.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
     b.setPadding(dp(14), dp(7), dp(12), dp(7));
@@ -1248,15 +1301,15 @@ public final class ChatFragment extends Fragment {
     LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(48));
     p.topMargin = dp(3);
     drawerPanel.addView(b, p);
+    return b;
   }
 
   private void refreshRoomDrawer() {
     if (drawerPanel == null) return;
-    View view = drawerPanel.getTag() instanceof View ? (View) drawerPanel.getTag() : null;
-    if (view instanceof TextView) {
-      ((TextView) view).setText((room.equals("lobby") ? "公共大厅" : "私密房间  ·  " + room)
-          + "\n" + members.length() + " 人在线\n轻触标题复制房间链接");
-      view.setOnClickListener(v -> { closeRoomDrawer(); shareRoom(); });
+    if (drawerPanel.getTag() instanceof Button) {
+      Button lobby = (Button) drawerPanel.getTag();
+      lobby.setBackground(shape(room.equals("lobby") ? mine : bg, 20));
+      lobby.setSelected(room.equals("lobby"));
     }
   }
 
@@ -1891,16 +1944,14 @@ public final class ChatFragment extends Fragment {
       nicknameDialog(true);
       return;
     }
-    LinearLayout fields = vertical();
-    fields.setPadding(dp(20), dp(8), dp(20), 0);
+    LinearLayout fields = dialogContent("仅凭口令进入", "创建私人房间", "");
     EditText name = field("房间名称", false), password = field("房间口令", true);
-    margin(name, fields, 0);
-    margin(password, fields, 12);
+    addDialogField(fields, "房间名称", name);
+    addDialogField(fields, "房间口令", password);
     AlertDialog d =
         new AlertDialog.Builder(getActivity())
-            .setTitle("创建私密房间")
             .setView(fields)
-            .setPositiveButton("创建", null)
+            .setPositiveButton("继续", null)
             .setNegativeButton("取消", null)
             .create();
     d.setOnShowListener(
@@ -1935,7 +1986,7 @@ public final class ChatFragment extends Fragment {
                         password.setError(e.getMessage());
                       }
                     }));
-    d.show();
+    showChatDialog(d);
   }
 
   private void joinDialog(String code) {
@@ -1945,17 +1996,15 @@ public final class ChatFragment extends Fragment {
       nicknameDialog(true);
       return;
     }
-    LinearLayout fields = vertical();
-    fields.setPadding(dp(20), dp(8), dp(20), 0);
+    LinearLayout fields = dialogContent("加入私人房间", "通过房号加入", "");
     EditText rid = field("房号", false), pw = field("房间口令", true);
     rid.setText(code);
-    margin(rid, fields, 0);
-    margin(pw, fields, 12);
+    addDialogField(fields, "房号", rid);
+    addDialogField(fields, "房间口令", pw);
     AlertDialog d =
         new AlertDialog.Builder(getActivity())
-            .setTitle("加入私密房间")
             .setView(fields)
-            .setPositiveButton("加入", null)
+            .setPositiveButton("加入房间", null)
             .setNegativeButton("取消", null)
             .create();
     d.setOnShowListener(
@@ -1988,7 +2037,7 @@ public final class ChatFragment extends Fragment {
                         pw.setError(e.getMessage());
                       }
                     }));
-    d.show();
+    showChatDialog(d);
   }
 
   void handleLink(Intent intent) {
@@ -2379,7 +2428,7 @@ public final class ChatFragment extends Fragment {
           if (send != null) send.setEnabled(true);
           renderPendingTexts();
           if (g != generation || !pending.room.equals(room)) return;
-          setStatus("已发送");
+          toast("已发送");
           refreshSnapshot(true);
           scrollToLatestMessage();
         },
@@ -2741,7 +2790,7 @@ public final class ChatFragment extends Fragment {
       wrap.addView(bubbleView, bubbleParams);
       if (groupEnd) {
         TextView stamp = text(time(ts, "HH:mm"), 10, muted);
-        stamp.setPadding(dp(12), dp(3), dp(12), 0);
+        stamp.setPadding(dp(15), dp(5), dp(15), 0);
         LinearLayout.LayoutParams stampParams = new LinearLayout.LayoutParams(-2, -2);
         stampParams.gravity = mine ? Gravity.END : Gravity.START;
         wrap.addView(stamp, stampParams);
@@ -2836,10 +2885,14 @@ public final class ChatFragment extends Fragment {
         });
       }
     } else if (action.equals("删除") && m.optBoolean("mine")) {
-      new AlertDialog.Builder(getActivity())
-          .setMessage("删除这条消息？其他成员也会看到删除状态。")
+      if (input != null) {
+        InputMethodManager keyboard = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(input.getWindowToken(), 0);
+      }
+      AlertDialog delete = new AlertDialog.Builder(getActivity())
+          .setView(dialogContent("", "删除这条消息？", "删除后，房间里的所有人都将无法再查看这条消息。"))
           .setNegativeButton("取消", null)
-          .setPositiveButton("删除", (x, y) -> {
+          .setPositiveButton("删除消息", (x, y) -> {
             String path = endpoint("delete/") + m.optString("id");
             int g = generation;
             task(() -> net.api(path, new JSONObject()), v -> {
@@ -2849,7 +2902,8 @@ public final class ChatFragment extends Fragment {
               refreshSnapshot(false);
             });
           })
-          .show();
+          .create();
+      showChatDialog(delete);
     }
   }
 
@@ -3046,7 +3100,7 @@ public final class ChatFragment extends Fragment {
           try {
             core.run("event", "event", new JSONObject().put("type", "message")
                 .put("message", result.getJSONObject("message")));
-            setStatus("已发送");
+            toast("已发送");
             refreshSnapshot(true);
             scrollToLatestMessage();
           } catch (Exception e) { error(e); }

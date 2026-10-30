@@ -9,7 +9,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 55
     env:
       CI: 'true'
       WRANGLER_SEND_METRICS: 'false'
@@ -54,6 +54,12 @@ jobs:
           ctest --test-dir "$RUNNER_TEMP/native-qa" --output-on-failure | tee android/evidence/ci/native-host.txt
       - name: Android Activity, JNI and local real-service acceptance
         run: bash android/qa-fixture/ci-acceptance.sh
+      - name: Source-bound isolated layout and message interaction acceptance
+        run: bash android/qa-fixture/visual-native.sh
+      - name: Source-bound packet interruption and recovery
+        env:
+          QA_CURRENT_SOURCE: 'true'
+        run: bash android/qa-fixture/network-outage.sh
       - name: Upload exact APKs and acceptance evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -64,6 +70,8 @@ jobs:
             android/app/build/outputs/apk/qa/app-qa.apk
             android/app/build/outputs/apk/androidTest/qa/app-qa-androidTest.apk
             android/evidence/ci/
+            android/evidence/visual/
+            android/evidence/outage/
             android/app/build/reports/lint-results-*.txt
           if-no-files-found: error
           retention-days: 7

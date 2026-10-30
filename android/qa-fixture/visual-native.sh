@@ -10,6 +10,7 @@ emulator_pid=''; worker_pid=''
 cleanup() {
  adb logcat -d > "$QA_EVIDENCE/logcat.txt" 2>&1 || true
  for pid in "$emulator_pid" "$worker_pid"; do [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true; done
+ for pid in "$emulator_pid" "$worker_pid"; do [[ -z "$pid" ]] || wait "$pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT
 test -c /dev/kvm; sudo chmod a+rw /dev/kvm

@@ -32,15 +32,18 @@ try:
  start();find('进入聊天');capture('gate');click('昵称','content-desc');sh('input','text','Visual-Android');back();click('进入聊天');find('在线','content-desc')
  for name,w,h,dark in [('small',640,1136,False),('mobile',720,1440,False),('dark',720,1440,True)]:
   checks=[];sh('am','force-stop',PKG);sh('wm','size',str(w)+'x'+str(h));sh('cmd','uimode','night','yes' if dark else 'no');start();find('消息内容','content-desc');find('在线','content-desc');capture(name+'-lobby');checks.append('lobby and connected state')
-  click('打开房间导航','content-desc');find('房间与成员');capture(name+'-drawer');back()
-  menu('创建私密房间');find('房间名称');capture(name+'-create');click('取消');checks.append('drawer/create dialog')
-  menu('通过房号加入');find('房号');capture(name+'-join');click('取消');checks.append('join dialog')
+  click('打开房间导航','content-desc');find('聊天室');capture(name+'-drawer');back()
+  menu('创建私密房间');find('创建私人房间');capture(name+'-create');click('取消');checks.append('drawer/create dialog')
+  menu('通过房号加入');find('通过房号加入');capture(name+'-join');click('取消');checks.append('join dialog')
   click('更改昵称','content-desc');capture(name+'-rename');click('取消');checks.append('rename dialog')
   click('人在线；点击选择一对一通话对象','contains-desc');capture(name+'-members');click('知道了');checks.append('member range dialog')
   click('打开表情','content-desc');find('插入表情 😀','content-desc');capture(name+'-emoji');click('打开表情','content-desc');checks.append('emoji viewport')
-  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
+  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');
+  # A short history must occupy the top of the message viewport, not hug the composer.
+  bounds=list(map(int,re.findall(r'\d+',msg.get('bounds'))));assert bounds[1] < h*.55, ('short history bottom anchored',bounds,h)
+  tap(msg,long=True);find('回复');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
   # The next menu is on the visible own message, not the reply preview.
-  tap(find('visual-'+name+'-message'),long=True);click('删除');find('删除这条消息？其他成员也会看到删除状态。');capture(name+'-delete');click('删除');checks.append('send/menu/reply/delete')
+  tap(find('visual-'+name+'-message'),long=True);click('删除');find('删除这条消息？');capture(name+'-delete');click('删除消息');checks.append('send/menu/reply/delete')
   results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, source-bound candidate QA APK, local real Worker'})
  (OUT/'native-visual.json').write_text(json.dumps({'status':'passed','results':results,'notCovered':['physical handset','SFU/call media','media codec and audio routes','complete pixel parity']},ensure_ascii=False,indent=2))
 except BaseException as e:

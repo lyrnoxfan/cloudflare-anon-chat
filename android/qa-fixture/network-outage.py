@@ -83,7 +83,7 @@ try:
  shell('am','force-stop',PKG); shell('am','start','-W','-n',PKG+'/com.lyrnox.qingliao.MainActivity')
  find(out); find(missed); capture('04-restarted')
  passed('restarted Activity restores persisted missed and retried messages')
- (OUT/'network-outage.json').write_text(json.dumps({'status':'passed','appSource':'4cbbff5d923499215a07df835430311f358527a6','checks':checks,'recoverySeconds':recovery_seconds,'boundary':'AOSP API29 packet rejection, localhost Worker/D1/R2/DO; no physical device, SFU or production traffic'},ensure_ascii=False,indent=2))
+ (OUT/'network-outage.json').write_text(json.dumps({'status':'passed','appSource':(OUT/'app-source-commit.txt').read_text().strip(),'checks':checks,'recoverySeconds':recovery_seconds,'boundary':'AOSP API29 packet rejection, localhost Worker/D1/R2/DO; no physical device, SFU or production traffic'},ensure_ascii=False,indent=2))
  print('NETWORK OUTAGE ACCEPTANCE PASSED',flush=True)
 except BaseException as e:
  try:capture('failure')

@@ -14,6 +14,9 @@ cleanup() {
   for pid in "$fixture_pid" "$worker_pid" "$emulator_pid"; do
     if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
   done
+  for pid in "$fixture_pid" "$worker_pid" "$emulator_pid"; do
+    [[ -z "$pid" ]] || wait "$pid" 2>/dev/null || true
+  done
 }
 trap cleanup EXIT
 # The runner must really provide KVM; don't silently fall back to an unusable slow VM.
