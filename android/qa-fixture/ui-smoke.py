@@ -261,7 +261,15 @@ try:
             image = locate('书店.png', 'content-desc', timeout=1)
             break
         except AssertionError:
-            adb('shell','input','swipe','360','400','360','850','500')
+            # The media card occupies the center of this viewport. A swipe on
+            # VideoView reopens its MediaController instead of scrolling ListView.
+            # Use the visible transcript's left gutter and dismiss only a detected
+            # playback window; retain the image decode/viewer assertions below.
+            window = tree()
+            if any(n.get('class') == 'android.widget.MediaController' for n in window.iter('node')):
+                adb('shell', 'input', 'keyevent', '4')
+                locate('消息内容', 'content-desc')
+            adb('shell','input','swipe','40','400','40','850','500')
     else: raise AssertionError('Image card was not reachable by scrolling')
     tap_node(image)
     locate('关闭图片预览', 'content-desc')
