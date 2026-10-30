@@ -37,6 +37,15 @@ def message_menu(text):
    (OUT/'menu-retry.json').write_text(json.dumps(attempts,ensure_ascii=False,indent=2))
  raise AssertionError('message menu still absent after fresh-node long press: '+text)
 def back():sh('input','keyevent','4')
+def keyboard_hidden(label):
+ end=time.monotonic()+5
+ while time.monotonic()<end:
+  state=sh('dumpsys','input_method')
+  if 'mInputShown=false' in state:
+   (OUT/(label+'-ime.txt')).write_text(state);return
+  time.sleep(.25)
+ (OUT/(label+'-ime.txt')).write_text(state)
+ raise AssertionError('IME still shown: '+label)
 def capture(name):
  time.sleep(.3);t=tree();(OUT/(name+'.xml')).write_bytes(ET.tostring(t));(OUT/(name+'.png')).write_bytes(adb('exec-out','screencap','-p'))
  return t
@@ -52,12 +61,12 @@ try:
   click('更改昵称','content-desc');capture(name+'-rename');click('取消');checks.append('rename dialog')
   click('人在线；点击选择一对一通话对象','contains-desc');capture(name+'-members');click('知道了');checks.append('member range dialog')
   click('打开表情','content-desc');find('插入表情 😀','content-desc');capture(name+'-emoji');click('打开表情','content-desc');checks.append('emoji viewport')
-  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');capture(name+'-sent');
+  click('消息内容','content-desc');sh('input','text','visual-'+name+'-message');capture(name+'-keyboard');click('发送消息','content-desc');back();msg=find('visual-'+name+'-message');sent=capture(name+'-sent');find('在线','content-desc');assert not any(n.get('text')=='正在发送…' for n in sent.iter('node')), 'stale delivery status';
   # A short history must occupy the top of the message viewport, not hug the composer.
   bounds=list(map(int,re.findall(r'\d+',msg.get('bounds'))));assert bounds[1] < h*.55, ('short history bottom anchored',bounds,h)
   message_menu('visual-'+name+'-message');capture(name+'-message-menu');click('回复');find('取消回复','content-desc');capture(name+'-reply');click('取消回复','content-desc');start();find('消息内容','content-desc')
   # The next menu is on the visible own message, not the reply preview.
-  message_menu('visual-'+name+'-message');click('删除');find('删除这条消息？');capture(name+'-delete');click('删除消息');checks.append('send/menu/reply/delete')
+  message_menu('visual-'+name+'-message');click('删除');find('删除这条消息？');capture(name+'-delete');keyboard_hidden(name+'-delete');click('删除消息');keyboard_hidden(name+'-deleted');capture(name+'-deleted');checks.append('send/menu/reply/delete, connected state retained, IME closed before and after deletion')
   results.append({'name':name,'physicalSize':[w,h],'density':320,'checks':checks,'scope':'API29 AOSP emulator, source-bound candidate QA APK, local real Worker'})
  (OUT/'native-visual.json').write_text(json.dumps({'status':'passed','results':results,'notCovered':['physical handset','SFU/call media','media codec and audio routes','complete pixel parity']},ensure_ascii=False,indent=2))
 except BaseException as e:

@@ -2385,7 +2385,7 @@ public final class ChatFragment extends Fragment {
     identityBadge.setText("匿名");
     if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
-    adapter.notifyDataSetChanged();
+    adapter.refreshRows();
     if (follow && bottom && messages.length() > 0) scrollToLatestMessage();
   }
 
@@ -2417,7 +2417,7 @@ public final class ChatFragment extends Fragment {
     busy = true;
     if (send != null) send.setEnabled(false);
     renderPendingTexts();
-    setStatus("正在发送…");
+    // Delivery progress belongs to the pending-message card, not connection status.
     task(
         () -> MessageProtocol.send(core, (p, body) -> net.messagePost(p, body), path,
             pending.room, pending.text, pending.id),
@@ -2531,6 +2531,18 @@ public final class ChatFragment extends Fragment {
   }
 
   private final class MessageAdapter extends BaseAdapter {
+    private String renderedRows;
+
+    void refreshRows() {
+      String rows = messages.toString();
+      // Presence and other non-message events must not replace message Views:
+      // doing so cancels an in-progress held touch on an unchanged bubble.
+      if (!rows.equals(renderedRows)) {
+        renderedRows = rows;
+        notifyDataSetChanged();
+      }
+    }
+
     public int getCount() {
       return messages.length();
     }
@@ -2885,10 +2897,7 @@ public final class ChatFragment extends Fragment {
         });
       }
     } else if (action.equals("删除") && m.optBoolean("mine")) {
-      if (input != null) {
-        InputMethodManager keyboard = (InputMethodManager) getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (keyboard != null) keyboard.hideSoftInputFromWindow(input.getWindowToken(), 0);
-      }
+      dismissComposerKeyboard();
       AlertDialog delete = new AlertDialog.Builder(getActivity())
           .setView(dialogContent("", "删除这条消息？", "删除后，房间里的所有人都将无法再查看这条消息。"))
           .setNegativeButton("取消", null)
@@ -2903,7 +2912,24 @@ public final class ChatFragment extends Fragment {
             });
           })
           .create();
+      // This dialog has no text fields. Do not transfer the composer's IME
+      // focus to it, or reopen the keyboard when its window is dismissed.
+      delete.setOnDismissListener(x -> dismissComposerKeyboard());
       showChatDialog(delete);
+      if (delete.getWindow() != null) delete.getWindow().setSoftInputMode(
+          WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+    }
+  }
+
+  private void dismissComposerKeyboard() {
+    if (input == null || getActivity() == null) return;
+    InputMethodManager keyboard = (InputMethodManager)
+        getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
+    if (keyboard != null) keyboard.hideSoftInputFromWindow(input.getWindowToken(), 0);
+    input.clearFocus();
+    if (root != null) {
+      root.setFocusableInTouchMode(true);
+      root.requestFocus();
     }
   }
 
