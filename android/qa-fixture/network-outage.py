@@ -6,7 +6,7 @@ import http.cookiejar,json,os,re,subprocess,time,urllib.request,uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 OUT=Path(os.environ['QA_EVIDENCE']); OUT.mkdir(parents=True,exist_ok=True)
-PKG='com.lyrnox.qingliao.qa'; checks=[]; rule=None
+PKG='com.lyrnox.qingliao.qa'; checks=[]; rule=None; inbound=None
 
 def adb(*args):
  return subprocess.check_output(['adb',*args],timeout=30)
@@ -44,13 +44,15 @@ try:
  shell('am','force-stop',PKG)
  shell('am','start','-W','-n',PKG+'/com.lyrnox.qingliao.MainActivity')
  tap(find('昵称','content-desc')); shell('input','text','Outage-Android'); shell('input','keyevent','4'); tap(find('进入聊天'))
- find('消息内容','content-desc'); find('已连接',contains=True)
+ find('消息内容','content-desc'); find('在线','content-desc')
  before='before-'+uuid.uuid4().hex[:10]; send(before); find(before)
  capture('01-online'); passed('real Worker text arrives in native Activity before outage')
  uid=re.search(r'userId=(\d+)',shell('dumpsys','package',PKG)).group(1)
  # Reject just this app's traffic to the isolated loopback Worker. ADB and host peer remain live.
  rule=['OUTPUT','-p','tcp','-d','127.0.0.1','--dport','8000','-m','owner','--uid-owner',uid,'-j','REJECT']
  shell('iptables','-I',*rule)
+ inbound=['INPUT','-p','tcp','-s','127.0.0.1','--sport','8000','-j','DROP']
+ shell('iptables','-I',*inbound)
  out='outage-send-'+uuid.uuid4().hex[:10]
  tap(find('消息内容','content-desc')); shell('input','text',out); tap(find('发送消息','content-desc')); shell('input','keyevent','4')
  find('重试',timeout=60)
@@ -64,6 +66,7 @@ try:
  # During isolation the new peer message must not have reached the app.
  assert not any(n.get('text')==missed for n in tree().iter('node'))
  passed('independent peer remains online while Android is isolated')
+ shell('iptables','-D',*inbound); inbound=None
  shell('iptables','-D',*rule); rule=None; restored=time.monotonic()
  find(missed,timeout=90)
  recovery_seconds=round(time.monotonic()-restored,2)
@@ -88,6 +91,9 @@ except BaseException as e:
  (OUT/'network-outage.json').write_text(json.dumps({'status':'failed','checks':checks,'error':str(e)},ensure_ascii=False,indent=2))
  raise
 finally:
+ if inbound:
+  try:shell('iptables','-D',*inbound)
+  except BaseException:pass
  if rule:
   try:shell('iptables','-D',*rule)
   except BaseException:pass
