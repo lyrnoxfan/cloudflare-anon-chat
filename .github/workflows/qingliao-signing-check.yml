@@ -1,0 +1,24 @@
+name: Qingliao release signing recovery check
+on:
+  push:
+    branches: [wabi/qingliao-signing-check-20261031]
+permissions:
+  contents: read
+jobs:
+  verify-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify stored key certificate
+        env:
+          KEYSTORE_B64: ${{ secrets.QINGLIAO_RELEASE_KEYSTORE_B64 }}
+          STORE_PASS: ${{ secrets.QINGLIAO_RELEASE_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          ks=$(mktemp)
+          trap 'rm -f "$ks"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$ks"
+          fingerprint=$(keytool -list -v -keystore "$ks" -storetype PKCS12 -alias qingliao-release -storepass:env STORE_PASS | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$fingerprint" = '76c1f82df878d1712f5ca20f25f76ed8f3b6d135c3e004f9e7830f73a3f1be50'
+          echo 'Stored release key certificate verified.'
