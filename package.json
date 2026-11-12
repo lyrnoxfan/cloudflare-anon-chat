@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/integration.test.mjs tests/sfu-contract.test.mjs",
+    "test": "node --test tests/integration.test.mjs tests/sfu-contract.test.mjs tests/remote-target.test.mjs",
     "check": "pnpm typecheck && pnpm test && node --check public/app.js && node --check public/call.js && wrangler deploy --dry-run --outdir .build",
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 migrations apply chat --local",

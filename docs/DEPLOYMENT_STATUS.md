@@ -1,5 +1,14 @@
 # 部署状态与验收记录
 
+## 2026-11-13 安全边界复核（不是新部署或线上验收）
+
+- 本次核对源码基线 `a92dd461112297380da37566826968dac6280017`。以下旧记录保留为当时证据，不是当前部署版本、服务可用性或全功能通过的证明。
+- `chat.lyrnox.com` 和 `blue-room-test` 在 Android 隔离 SFU 验收脚本中已列为禁止目标；网页远程验收现采用相同边界，删除隐式生产默认地址，必须显式提供 `CHAT_TEST_BASE_URL` 与 `CHAT_TEST_TARGET`。服务名不是隔离证明，运行前仍须核对独立资源。
+- 当前未取得可用的单独隔离真实 SFU 目标，也没有 Android/iOS 真机验收结果。不得将本地 21 项或历史浏览器合成媒体结果改写为真机、公网通话或本版本整体验收通过。
+- 本轮不运行生产写入、不部署、不迁移数据库、不改 Cloudflare 资源。可执行的新远程命令见本文末尾。
+
+## 历史记录（2026-10-28 文件原文）
+
 更新时间：2026-10-28。测试目标为 Cloudflare Worker `blue-room-test`，用户站点为 `https://chat.lyrnox.com`。本项目没有把本次代码部署到其他 Worker、网站、自定义域名或套餐。
 
 ## 当前测试部署
@@ -19,7 +28,7 @@
 
 ## 线上检查（`https://chat.lyrnox.com`）
 
-`CHAT_TEST_BASE_URL=https://chat.lyrnox.com pnpm test:remote`：4/4 通过。
+历史执行命令 `CHAT_TEST_BASE_URL=https://chat.lyrnox.com pnpm test:remote`：当时记录为 4/4 通过；该命令现已禁止，不得重跑。
 
 1. 首页返回 HTTP 200；无 Cookie 的 `/api/session` 返回预期 HTTP 401。
 2. 两个独立浏览器验证实时文字消息、D1 持久化、重复请求幂等性、删除权限及 XSS 防护。
@@ -49,7 +58,7 @@
 仅对隔离测试 Worker 运行远程测试：
 
 ```sh
-CHAT_TEST_BASE_URL=https://chat.lyrnox.com pnpm test:remote
+CHAT_TEST_BASE_URL=https://isolated-qa.example.test CHAT_TEST_TARGET=isolated-qa pnpm test:remote
 ```
 
-默认远程测试地址是 `https://chat.lyrnox.com`；脚本仅接受 HTTPS 地址。部署目标配置为 `wrangler.test.jsonc`。
+上面的域名仅为示例，不可直接运行。脚本无默认目标，拒绝用户站点 `chat.lyrnox.com`（含子域名）、`blue-room-test` 等生产标识以及带路径、认证信息、查询或片段的 URL。必须先取得独立 QA 服务及其写入授权；`wrangler.test.jsonc` 的旧名称不构成隔离证明。

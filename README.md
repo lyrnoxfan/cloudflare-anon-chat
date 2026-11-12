@@ -1,6 +1,6 @@
 # 轻聊：Cloudflare 匿名聊天室
 
-当前部署状态与未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`workers.dev` 地址仍有 1101；自定义测试域名 `https://chat.lyrnox.com` 用于隔离测试 Worker。部署和验收记录见下方文档。
+历史部署和未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`chat.lyrnox.com` 已作为用户站点使用，不再视为可写入的隔离验收环境；历史结果不代表当前线上状态。
 
 一个独立的 TypeScript Worker 项目。页面与 API 同源，由一个 Worker 提供静态资源；房间 Durable Object 负责顺序写入后的广播与 WebSocket Hibernation，D1 保存房间/消息/匿名权限/通话记录，私有 R2 保存文件，Cloudflare Realtime SFU 转发媒体。不是静态聊天演示，没有预置消息、模拟在线人数或假通话。
 
@@ -10,7 +10,7 @@
 
 SFU 使用 Cloudflare Realtime 的发布/订阅、协商、参与者租约和轨道控制。线上真实媒体是否通过，以 `docs/DEPLOYMENT_STATUS.md` 中带日期的双浏览器结果为准；测试浏览器合成媒体不等于手机真机验收。未配置 SFU 时相关接口明确返回 503。
 
-现有隔离测试 Worker 已由站主配置并部署；本仓库上传没有触发 Cloudflare 部署、创建资源或升级套餐。`wrangler.test.jsonc` 指向隔离测试资源；不要将线上测试命令指向生产 Worker。
+`wrangler.test.jsonc` 的 `blue-room-test` 是历史测试资源名称，不构成当前隔离保证。不要向它或用户站点运行可写验收；先准备单独的 QA Worker、D1、R2、DO 和对应的 SFU 配置，且不复用生产数据或凭据。
 
 ## 1. 安装与本地运行
 
@@ -31,12 +31,13 @@ pnpm dev
 pnpm exec playwright install --with-deps chromium
 pnpm check
 # 单独执行：pnpm typecheck；pnpm test（仅本地测试）
-# 双浏览器线上验收（会在隔离测试 D1 留下测试会话/房间/消息）：pnpm test:remote
-# 线上目标默认 https://chat.lyrnox.com；临时覆盖：CHAT_TEST_BASE_URL=https://chat.example.com pnpm test:remote
+# 双浏览器远程验收会写入会话/房间/消息/媒体并发起通话；必须明确指定已核对隔离的服务
+CHAT_TEST_BASE_URL=https://isolated-qa.example.test CHAT_TEST_TARGET=isolated-qa pnpm test:remote
+# 上述域名仅为示例，必须替换为真实、单独授权的 QA 服务；无默认目标
 # 打包检查（不部署）：pnpm exec wrangler deploy --dry-run --outdir .build
 ```
 
-本地测试 `pnpm test` 会启动 8787 端口的 Wrangler；测试前关闭手动启动的本地实例。它需要配置 `.dev.vars`，并自动创建独立临时模拟库、执行迁移，结束后清理，不使用开发库或远程数据库。线上 `pnpm test:remote` 是单独命令，使用两个独立浏览器并会在目标测试 Worker 的 D1 写入测试会话、消息和私人房间记录；不要对生产运行。当前仓库没有配置 GitHub Actions。测试结果打印在终端；本地截图写入 `tests/`，远程截图写入 `test-results/`，这些生成文件不进版本库。
+本地测试 `pnpm test` 会启动 8787 端口的 Wrangler；测试前关闭手动启动的本地实例。它需要配置 `.dev.vars`，并自动创建独立临时模拟库、执行迁移，结束后清理，不使用开发库或远程数据库。线上 `pnpm test:remote` 是单独命令，使用两个独立浏览器并会在目标测试 Worker 的 D1 写入测试会话、消息和私人房间记录；不要对生产运行。仓库的 GitHub Actions 用于 Android 构建与专项验收；其通过不代表网页真实环境验收。测试结果打印在终端；本地截图写入 `tests/`，远程截图写入 `test-results/`，这些生成文件不进版本库。
 
 ## 2. Cloudflare 初始化与部署（自行确认后执行）
 
