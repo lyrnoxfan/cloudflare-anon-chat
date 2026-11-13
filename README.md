@@ -37,6 +37,10 @@ CHAT_TEST_BASE_URL=https://isolated-qa.example.test CHAT_TEST_TARGET=isolated-qa
 # 打包检查（不部署）：pnpm exec wrangler deploy --dry-run --outdir .build
 ```
 
+远程浏览器从创建上下文起持续限制 HTTP(S)、导航/刷新、媒体地址及 WebSocket 的出口：只允许已核对的 HTTPS origin（WebSocket 为对应 WSS），HTTP 响应的所有重定向在下一跳发出前中止，Service Worker 强制禁用。跨域上传/下载（包括 R2 预签名直传）不在此脚本的允许范围内；应使用隔离 QA 的同源 Worker 流式路径，不能通过扩大白名单绕过保护。该防护不证明服务器绑定资源已隔离，也不是通用浏览器网络沙箱或真实 SFU 媒体验收。
+
+`pnpm test` 另含完全本地的 `.test` 域出口回归：回环 TLS 服务和仅转发到回环的代理统计实际收到的请求，覆盖重定向、真实前端昵称 POST、媒体 URL、导航/刷新/弹窗、WebSocket 和 Service Worker；不连接真实 QA 或生产服务。需本机有 Chromium 与 OpenSSL。
+
 本地测试 `pnpm test` 会启动 8787 端口的 Wrangler；测试前关闭手动启动的本地实例。它需要配置 `.dev.vars`，并自动创建独立临时模拟库、执行迁移，结束后清理，不使用开发库或远程数据库。线上 `pnpm test:remote` 是单独命令，使用两个独立浏览器并会在目标测试 Worker 的 D1 写入测试会话、消息和私人房间记录；不要对生产运行。仓库的 GitHub Actions 用于 Android 构建与专项验收；其通过不代表网页真实环境验收。测试结果打印在终端；本地截图写入 `tests/`，远程截图写入 `test-results/`，这些生成文件不进版本库。
 
 ## 2. Cloudflare 初始化与部署（自行确认后执行）
