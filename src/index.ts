@@ -1,5 +1,5 @@
 import {AwsClient} from 'aws4fetch';
-import {Env,Session,LIMITS,Fault,need,id,now,text,cid,json,body,session,roomAuth,rate,origin,sha,password,equal,signed,capability,verifyCap,mediaKind,publicMessage} from './shared';
+import {Env,Session,LIMITS,Fault,need,id,now,text,cid,json,body,session,roomAuth,rate,origin,sha,password,equal,signed,capability,verifyCap,mediaKind,publicMessage,normalizeNickname,claimNickname} from './shared';
 export {ChatRoom} from './room';
 export class Guard {
  constructor(private state:DurableObjectState){}
@@ -23,7 +23,8 @@ export default {
    if(req.method!=='GET'||req.headers.get('upgrade')==='websocket')origin(req);
    const ip=req.headers.get('cf-connecting-ip')||'local';
    if(p==='/api/session'&&req.method==='POST'){
-     await rate(env,'session:'+ip,30,3600000);const b=await body(req);const nickname=text(b.nickname,LIMITS.nickname);let s:Session|null=null;try{s=await session(req,env)}catch{}
+     await rate(env,'session:'+ip,30,3600000);const b=await body(req);const nickname=normalizeNickname(text(b.nickname,LIMITS.nickname));need(nickname.length>=1,400,'昵称不能为空');let s:Session|null=null;try{s=await session(req,env)}catch{}
+     await claimNickname(env,nickname,s?.id);
      if(s){await env.DB.prepare('UPDATE anonymous_sessions SET nickname=? WHERE id=?').bind(nickname,s.id).run();return json({...s,nickname,limits:LIMITS,sfu:!!(env.SFU_APP_ID&&env.SFU_APP_SECRET)})}
      const token=id()+id();s={id:id(),nickname,expires:now()+LIMITS.sessionMs};await env.DB.prepare('INSERT INTO anonymous_sessions(id,token_hash,nickname,created,expires) VALUES(?,?,?,?,?)').bind(s.id,await sha(token),nickname,now(),s.expires).run();
      const secure=url.protocol==='https:'?'; Secure':'';need(secure||env.DEV_LOCAL==='true',503,'生产环境必须使用 HTTPS');return json({...s,limits:LIMITS,sfu:!!(env.SFU_APP_ID&&env.SFU_APP_SECRET)},200,{'Set-Cookie':`chat=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`})
