@@ -65,11 +65,8 @@
   "workers_dev": true,
   "routes": [
     {
-      "pattern": "chat.lyrnox.com",
-      "zone_name": "lyrnox.com",
-      "custom_domain": true,
-      "enabled": true,
-      "previews_enabled": false
+      "pattern": "chat.lyrnox.com/*",
+      "zone_name": "lyrnox.com"
     }
   ]
 }
