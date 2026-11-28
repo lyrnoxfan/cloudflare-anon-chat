@@ -5,7 +5,7 @@ export ANDROID_AVD_HOME="$RUNNER_TEMP/upgrade-avd"
 mkdir -p "$ANDROID_AVD_HOME" android/evidence/upgrade
 out="$PWD/android/evidence/upgrade"
 exec > >(tee "$out/upgrade.log") 2>&1
-pid=''; worker_pid=''; cleanup(){ [[ -z "$worker_pid" ]] || kill "$worker_pid" 2>/dev/null || true; nginx -p "$RUNNER_TEMP/upgrade-nginx/" -c "$RUNNER_TEMP/upgrade-nginx/nginx.conf" -s stop 2>/dev/null || true; adb logcat -d > "$out/logcat.txt" 2>&1 || true; [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true; }; trap cleanup EXIT
+pid=''; worker_pid=''; host_blocked=0; cleanup(){ if [[ "$host_blocked" == 1 ]]; then sudo iptables -D OUTPUT -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT || true; sudo ip6tables -D OUTPUT -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT || true; fi; [[ -z "$worker_pid" ]] || kill "$worker_pid" 2>/dev/null || true; nginx -p "$RUNNER_TEMP/upgrade-nginx/" -c "$RUNNER_TEMP/upgrade-nginx/nginx.conf" -s stop 2>/dev/null || true; adb logcat -d > "$out/logcat.txt" 2>&1 || true; [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true; }; trap cleanup EXIT
 old=input/old/qingliao-android-0.3.3-release-a92dd46.apk
 new=input/new/qingliao-liaoji-release-fb27f3b.apk
 sha256sum "$old" "$new"
@@ -88,6 +88,17 @@ printf '127.0.0.1 localhost chat.lyrnox.com\n::1 localhost\n' > "$RUNNER_TEMP/ho
 adb push "$RUNNER_TEMP/hosts" /data/local/tmp/offline-hosts
 adb shell chmod 644 /data/local/tmp/offline-hosts
 adb shell mount --bind /data/local/tmp/offline-hosts /system/etc/hosts
+# Before restarting device services, force-stop app and enforce host-level
+# egress denial for this runner UID, for both IPv4 and IPv6. Emulator network
+# traffic runs as this UID. This guard remains active until cleanup.
+adb shell am force-stop com.lyrnox.qingliao
+sudo iptables -I OUTPUT 1 -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT
+sudo ip6tables -I OUTPUT 1 -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT
+host_blocked=1
+sudo iptables -C OUTPUT -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT
+sudo ip6tables -C OUTPUT -m owner --uid-owner "$(id -u)" ! -o lo -j REJECT
+sudo iptables -S OUTPUT | tee "$out/local-chat/host-firewall-ipv4.txt"
+sudo ip6tables -S OUTPUT | tee "$out/local-chat/host-firewall-ipv6.txt"
 # Restart zygote/netd so app and resolver inherit the isolated host/cert mounts.
 # Egress is rejected before enabling network; assert again after service restart.
 adb shell setenforce 0
