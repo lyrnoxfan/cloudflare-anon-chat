@@ -1,5 +1,7 @@
 # 轻聊 Android 0.3.3 — 正式版（release 签名）
 
+> APK 已改由 GitHub Releases 提供（`android-v0.3.3-*`），本目录只保留校验/签名元数据，不再存储二进制。
+
 - 文件：`qingliao-0.3.3-release.apk`
 - 文件大小：27,410,012 字节
 - SHA-256：`dcbc2f1b4837760320f04949b485862bb299dd3ff2d47de5d81c81840e8d8597`
