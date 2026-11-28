@@ -628,6 +628,9 @@ public final class ChatFragment extends Fragment {
             v -> {
               int start = Math.max(0, input.getSelectionStart());
               input.getText().insert(start, symbol);
+              input.setSelection(Math.min(input.getText().length(), start + symbol.length()));
+              input.requestFocus();
+              if (emojiPanel != null) emojiPanel.setVisibility(View.GONE);
             });
         GridLayout.LayoutParams p = new GridLayout.LayoutParams();
         p.width = 0;
@@ -703,7 +706,7 @@ public final class ChatFragment extends Fragment {
     LinearLayout composerPill = new LinearLayout(getActivity());
     composerPill.setGravity(Gravity.CENTER_VERTICAL);
     composerPill.setPadding(dp(5), dp(3), dp(5), dp(3));
-    composerPill.setBackground(shape(chip, 22));
+    composerPill.setBackground(shape(pale, 22));
     attach = iconButton("＋", "添加照片或文件", this::pickFile);
     input = field("说点什么…", false);
     input.setContentDescription("消息内容");
@@ -747,8 +750,8 @@ public final class ChatFragment extends Fragment {
     GradientDrawable sendMask = shape(Color.WHITE, 22);
     send.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(0x33ffffff),
         new android.graphics.drawable.LayerDrawable(new Drawable[] {
-            shape(nightMode ? 0xff8f442b : 0xffb65a2f, 22),
-            new ChatIconDrawable("发送消息", Color.WHITE, getResources().getDisplayMetrics().density)
+            shape(nightMode ? 0xff3F6B2E : 0xff95EC69, 22),
+            new ChatIconDrawable("发送消息", nightMode ? 0xffeafbe0 : 0xff15500a, getResources().getDisplayMetrics().density)
         }), sendMask));
     send.setVisibility(View.GONE);
     composerPill.addView(send, new LinearLayout.LayoutParams(dp(44), dp(44)));
@@ -1739,7 +1742,7 @@ public final class ChatFragment extends Fragment {
 
   private final Runnable callClock = new Runnable() {
     @Override public void run() {
-      if (!started || observedCall == null) return;
+      if (!started || nativeCall == null || observedCall == null) return;
       renderCallPanel();
       main.postDelayed(this, 1000);
     }
@@ -2190,6 +2193,21 @@ public final class ChatFragment extends Fragment {
           refreshCallState();
           main.removeCallbacks(callPoll);
           main.postDelayed(callPoll, 7000);
+        },
+        e -> {
+          if (g != generation || !started) return;
+          if (e instanceof ChatNet.ApiError) {
+            int code = ((ChatNet.ApiError) e).status;
+            if (code == 401 || code == 403) { error(e); return; }
+          }
+          // 恢复探针失败也要继续指数退避重建 WebSocket，否则会“半死”——
+          // 通话状态仍在轮询，但新消息/成员永远不再推送。
+          setStatus("连接失败，正在重试…");
+          try {
+            long delay = core.run("retry", "attempt", retries++).getLong("delay");
+            main.removeCallbacks(reconnect);
+            main.postDelayed(reconnect, delay);
+          } catch (Exception ex) { error(ex); }
         });
   }
 
@@ -2389,7 +2407,8 @@ public final class ChatFragment extends Fragment {
     subtitle.setContentDescription(
         members.length() + " 人在线；点击选择一对一通话对象"
             + (selectedCallTargetName.isEmpty() ? "" : "；当前呼叫 " + selectedCallTargetName));
-    identityBadge.setText("匿名");
+    String badgeNick = nickname == null ? "" : nickname.trim();
+    identityBadge.setText(badgeNick.isEmpty() ? "匿名" : (badgeNick.length() > 8 ? badgeNick.substring(0, 8) : badgeNick));
     if (drawerPanel != null) refreshRoomDrawer();
     older.setVisibility(next == null ? View.GONE : View.VISIBLE);
     adapter.refreshRows();
@@ -2435,7 +2454,7 @@ public final class ChatFragment extends Fragment {
           if (send != null) send.setEnabled(true);
           renderPendingTexts();
           if (g != generation || !pending.room.equals(room)) return;
-          toast("已发送");
+          /* 成功提示已由界面体现，无需重复 toast */
           refreshSnapshot(true);
           scrollToLatestMessage();
         },
@@ -3059,7 +3078,7 @@ public final class ChatFragment extends Fragment {
     }
     job.running = false;
     main.post(() -> {
-      if (uploadJob != job) return;
+      if (uploadJob != job || uploadPanel == null) return;
       uploadJob = null;
       busy = false;
       job.file.delete();
@@ -3093,7 +3112,7 @@ public final class ChatFragment extends Fragment {
           job.progressPermille = progress;
           if (sent != total && sent % (512 * 1024) >= 32 * 1024) return;
           main.post(() -> {
-            if (uploadJob == job && uploadProgress != null) {
+            if (uploadJob == job && uploadProgress != null && uploadLabel != null) {
               uploadProgress.setProgress(progress);
               uploadLabel.setText(job.name + " · " + (progress / 10) + "%");
             }
@@ -3110,7 +3129,7 @@ public final class ChatFragment extends Fragment {
         if (job.cancelled) throw new IOException("上传已取消");
         job.confirming = true;
         main.post(() -> {
-          if (uploadJob == job) {
+          if (uploadJob == job && uploadLabel != null) {
             uploadLabel.setText("正在确认并保存文件…");
             uploadCancel.setEnabled(false);
           }
@@ -3118,7 +3137,7 @@ public final class ChatFragment extends Fragment {
         JSONObject result = net.api(path + "confirm-upload/" + job.grantId, new JSONObject());
         job.running = false;
         main.post(() -> {
-          if (uploadJob != job) return;
+          if (uploadJob != job || uploadPanel == null) return;
           uploadJob = null;
           busy = false;
           job.file.delete();
@@ -3127,7 +3146,7 @@ public final class ChatFragment extends Fragment {
           try {
             core.run("event", "event", new JSONObject().put("type", "message")
                 .put("message", result.getJSONObject("message")));
-            toast("已发送");
+            /* 成功提示已由界面体现，无需重复 toast */
             refreshSnapshot(true);
             scrollToLatestMessage();
           } catch (Exception e) { error(e); }
@@ -3140,7 +3159,7 @@ public final class ChatFragment extends Fragment {
             catch (Exception ignored) {}
           }
           main.post(() -> {
-            if (uploadJob != job) return;
+            if (uploadJob != job || uploadPanel == null) return;
             uploadJob = null;
             busy = false;
             job.file.delete();
@@ -3150,7 +3169,7 @@ public final class ChatFragment extends Fragment {
           return;
         }
         main.post(() -> {
-          if (uploadJob != job) return;
+          if (uploadJob != job || uploadPanel == null) return;
           busy = false;
           uploadRetry.setVisibility(View.VISIBLE);
           uploadLabel.setText(job.name + " · " + (e.getMessage() == null ? "上传失败" : e.getMessage()));

@@ -25,7 +25,9 @@ final class AudioFocusLease {
     request = new AudioFocusRequest.Builder(communication ? AudioManager.AUDIOFOCUS_GAIN_TRANSIENT : AudioManager.AUDIOFOCUS_GAIN)
         .setAudioAttributes(attributes).setAcceptsDelayedFocusGain(false).setWillPauseWhenDucked(true)
         .setOnAudioFocusChangeListener(change -> {
-          if (change < 0) {
+          // 只有“永久失去焦点”才结束通话；瞬时丢失（通知音/导航播报/来电振铃）
+          // 不应把整通电话挂断。
+          if (change == AudioManager.AUDIOFOCUS_LOSS) {
             synchronized (AudioFocusLease.this) {
               if (!acquired) return;
             }

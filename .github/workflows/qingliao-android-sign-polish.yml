@@ -1,0 +1,73 @@
+name: Qingliao Android signed (polish)
+
+# 手动触发：用仓库里的 release 密钥给当前分支源码签一个正式 APK，并上传产物。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/qingliao-android-sign-polish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: JDK 17
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '17.0.14+7'
+
+      - name: Install matching Android tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"'
+
+      - name: Build release (unsigned) + lint
+        run: |
+          set -euo pipefail
+          (cd android && bash gradlew --no-daemon assembleRelease lintRelease)
+
+      - name: Sign with the existing release certificate
+        env:
+          KEYSTORE_B64: ${{ secrets.QINGLIAO_RELEASE_KEYSTORE_B64 }}
+          STORE_PASS: ${{ secrets.QINGLIAO_RELEASE_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          ks=$(mktemp)
+          trap 'rm -f "$ks"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$ks"
+          unset KEYSTORE_B64
+          sha=$(git rev-parse --short=7 HEAD)
+          apk="qingliao-release-${sha}.apk"
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          mkdir -p signed
+          "$apksigner" sign --ks "$ks" --ks-type PKCS12 --ks-key-alias qingliao-release \
+            --ks-pass env:STORE_PASS --key-pass env:STORE_PASS \
+            --out "signed/$apk" android/app/build/outputs/apk/release/app-release-unsigned.apk
+          unset STORE_PASS
+          "$apksigner" verify --verbose --print-certs "signed/$apk" | tee signed/signature.txt
+          grep -Fx 'Signer #1 certificate SHA-256 digest: 76c1f82df878d1712f5ca20f25f76ed8f3b6d135c3e004f9e7830f73a3f1be50' signed/signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "signed/$apk" > signed/apk-manifest.txt
+          grep -F "package: name='com.lyrnox.qingliao'" signed/apk-manifest.txt
+          git rev-parse HEAD > signed/source-commit.txt
+          (cd signed && sha256sum "$apk" > SHA256SUMS && sha256sum "$apk")
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qingliao-signed-polish
+          path: signed/
+          if-no-files-found: error
+          retention-days: 7
