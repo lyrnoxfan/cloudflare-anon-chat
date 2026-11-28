@@ -1,44 +1,34 @@
-name: Android isolated visual acceptance
+name: Android isolated release upgrade acceptance
 on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: android-visual
-  cancel-in-progress: false
+  actions: read
 jobs:
-  outage:
+  upgrade:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
-      CI: 'true'
-      WRANGLER_SEND_METRICS: 'false'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-      - name: Locked local Worker dependencies
-        run: npm install --global pnpm@10.32.1 && pnpm install --frozen-lockfile
-      - name: JDK 17
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
-        with:
-          distribution: temurin
-          java-version: '17.0.14+7'
-      - name: Isolated Android toolchain
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" "emulator" "system-images;android-29;default;x86_64"'
-      - name: Build candidate after visual fix
-        working-directory: android
-        run: chmod +x gradlew && ./gradlew --no-daemon assembleQa lintQa
-      - name: Capture native page and dialog states
-        run: bash android/qa-fixture/visual-native.sh
+      - name: Download previously signed artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p input/new input/old
+          gh run download 46126418982 -n qingliao-liaoji-signed-fb27f3b -D input/new
+          gh release download android-v0.3.3-release-a92dd46 -p qingliao-android-0.3.3-release-a92dd46.apk -D input/old
+          echo '1b3c2bbfb7d0ce5a5d6ac3dc717ccc85138bb1fe428ff4128833806e2f0d6f93  input/new/qingliao-liaoji-release-fb27f3b.apk' | sha256sum -c -
+          echo '18bf1e466bc4fbd2e091aa898c957b216c5c6e62123ac9dc704e41b7d85cb66f  input/old/qingliao-android-0.3.3-release-a92dd46.apk' | sha256sum -c -
+      - name: Install isolated emulator
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" "emulator" "system-images;android-29;default;x86_64"'
+      - name: Offline previous-to-new signed upgrade
+        run: bash android/qa-fixture/release-upgrade-offline.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: android-visual-${{ github.sha }}
-          path: |
-            android/evidence/visual/
-            android/app/build/outputs/apk/qa/app-qa.apk
-            android/app/build/reports/lint-results-qa.txt
+          name: upgrade-offline-${{ github.sha }}
+          path: android/evidence/upgrade/
           if-no-files-found: warn
           retention-days: 7
