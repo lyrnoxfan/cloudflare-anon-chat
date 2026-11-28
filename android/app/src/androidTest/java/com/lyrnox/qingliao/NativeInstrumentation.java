@@ -53,10 +53,19 @@ public final class NativeInstrumentation extends Instrumentation {
       check("回复 小青：你好\n正文".equals(ReplyDraft.messageText(ReplyDraft.prefix("小青", "你好"), " 正文 ")), "reply sends quoted context plus typed body");
       check("正文".equals(ReplyDraft.messageText("", " 正文 ")), "cancelled reply sends only typed body");
       long now = 1_800_000_000_000L;
-      check(MessageGrouping.sameGroup(false, "小青", now, false, "小青", now + 299_999), "same speaker groups within five minutes");
-      check(!MessageGrouping.sameGroup(false, "小青", now, false, "小青", now + 300_000), "five-minute boundary ends group");
-      check(!MessageGrouping.sameGroup(false, "小青", now, false, "小蓝", now + 1), "different speaker ends group");
-      check(!MessageGrouping.sameGroup(false, "小青", now, true, "小青", now + 1), "mine status ends group");
+      java.util.Calendar noon = java.util.Calendar.getInstance();
+      noon.setTimeInMillis(now);
+      noon.set(java.util.Calendar.HOUR_OF_DAY, 12);
+      long midday = noon.getTimeInMillis();
+      check(!MessageGrouping.showTimestamp(midday, midday + 299_999), "short gap has no transcript divider");
+      check(!MessageGrouping.showTimestamp(midday, midday + 300_000), "exact five-minute gap has no divider");
+      check(MessageGrouping.showTimestamp(midday, midday + 300_001), "long gap inserts a time divider");
+      noon.set(java.util.Calendar.HOUR_OF_DAY, 0);
+      noon.set(java.util.Calendar.MINUTE, 0);
+      noon.set(java.util.Calendar.SECOND, 0);
+      noon.set(java.util.Calendar.MILLISECOND, 0);
+      check(MessageGrouping.showTimestamp(noon.getTimeInMillis() - 1, noon.getTimeInMillis()),
+          "crossing midnight inserts a divider even without a long gap");
       check("今天".equals(MessageGrouping.dayLabel(now, now)), "message date divider labels today");
       check("昨天".equals(MessageGrouping.dayLabel(now - 24L * 60 * 60 * 1000, now)), "message date divider labels yesterday");
       check("听筒".equals(CallAudioRouter.labelForType(android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)),

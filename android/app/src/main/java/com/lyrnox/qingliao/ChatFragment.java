@@ -209,7 +209,7 @@ public final class ChatFragment extends Fragment {
     return Math.round(n * getResources().getDisplayMetrics().density);
   }
 
-  private int bg, ink, green, pale, mine, muted, line, emptyMark, avatarInk, controlMuted;
+  private int bg, topbar, ink, green, pale, mine, muted, line, emptyMark, chip, systemBubble, controlMuted;
   private boolean nightMode;
 
   private void applyPalette() {
@@ -217,38 +217,37 @@ public final class ChatFragment extends Fragment {
         android.content.res.Configuration.UI_MODE_NIGHT_MASK)
         == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     if (nightMode) {
-      bg = Color.rgb(32, 41, 31);       // #20291f webpage surface
-      ink = Color.rgb(237, 242, 231);   // #edf2e7
-      green = Color.rgb(196, 217, 171); // #c4d9ab
-      pale = Color.rgb(45, 57, 42);     // #2d392a webpage message surface
-      mine = Color.rgb(66, 87, 51);     // #425733
-      muted = Color.rgb(176, 189, 171);// #b0bdab
-      line = Color.rgb(48, 61, 44);     // #303d2c
-      emptyMark = Color.rgb(146, 171, 124);
-      avatarInk = Color.rgb(39, 59, 32);
-      controlMuted = Color.rgb(135, 151, 128);
+      bg = 0xff201b17;
+      topbar = 0xff2a211b;
+      ink = 0xfff7ecdf;
+      green = 0xffefaa82;
+      pale = 0xff312822;
+      mine = 0xff35552e;
+      muted = 0xffc7b9aa;
+      line = 0xff514137;
+      emptyMark = 0xffefaa82;
+      chip = 0xff3e3128;
+      systemBubble = 0xff4a3a30;
+      controlMuted = 0xffc7b9aa;
     } else {
-      bg = Color.rgb(248, 250, 243);
-      ink = Color.rgb(37, 45, 37);
-      green = Color.rgb(82, 107, 64);
-      pale = Color.rgb(234, 240, 227);
-      mine = Color.rgb(215, 229, 188);
-      muted = Color.rgb(112, 120, 109);
-      line = Color.rgb(230, 234, 224);
-      emptyMark = Color.rgb(183, 201, 165);
-      avatarInk = Color.rgb(52, 72, 46);
-      controlMuted = Color.rgb(174, 178, 174);
+      bg = 0xfffcf5eb;       // 聊记 transcript background
+      topbar = 0xfffbf3e7;
+      ink = 0xff201b15;
+      green = 0xffa4532b;    // accessible terracotta for small text
+      pale = Color.WHITE;
+      mine = 0xff95ec69;
+      muted = 0xff6f6254;    // stronger contrast than the reference's muted text
+      line = 0xffece2d2;
+      emptyMark = 0xffc66a3a;
+      chip = 0xfff1e7d8;
+      systemBubble = 0xffe9e0d1;
+      controlMuted = 0xff77675a;
     }
   }
 
-  private GradientDrawable messageShape(int color, boolean mine, boolean grouped, boolean groupEnd) {
-    GradientDrawable d = new GradientDrawable();
-    d.setColor(color);
-    float full = dp(21), small = dp(11);
-    float tl = full, tr = full, br = full, bl = full;
-    if (grouped) { if (mine) tr = small; else tl = small; }
-    if (!groupEnd) { if (mine) br = small; else bl = small; }
-    d.setCornerRadii(new float[] {tl, tl, tr, tr, br, br, bl, bl});
+  private GradientDrawable messageShape(boolean outgoing, boolean deleted) {
+    GradientDrawable d = shape(deleted ? systemBubble : outgoing ? mine : pale, deleted ? 9 : 16);
+    if (!outgoing && !deleted) d.setStroke(dp(1), line);
     return d;
   }
 
@@ -378,32 +377,24 @@ public final class ChatFragment extends Fragment {
     root.addView(content, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout header = new LinearLayout(getActivity());
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setPadding(dp(10), dp(11), dp(10), dp(10));
-    // Match the current website mobile topbar minimum height and spacing.
-    header.setMinimumHeight(dp(77));
+    header.setPadding(dp(4), dp(8), dp(8), dp(8));
+    header.setBackgroundColor(topbar);
+    header.setMinimumHeight(dp(60));
     Button drawerToggle = iconButton("‹", "打开房间导航", this::openRoomDrawer);
     drawerToggle.setTextSize(31);
     header.addView(drawerToggle, new LinearLayout.LayoutParams(dp(44), dp(44)));
-    ImageView roomMark = new ImageView(getActivity());
-    roomMark.setImageDrawable(new ChatIconDrawable("轻聊房间", green,
-        getResources().getDisplayMetrics().density));
-    roomMark.setScaleType(ImageView.ScaleType.CENTER);
-    roomMark.setBackground(shape(pale, 22));
-    roomMark.setContentDescription("轻聊房间");
-    LinearLayout.LayoutParams roomMarkParams = new LinearLayout.LayoutParams(dp(34), dp(34));
-    roomMarkParams.leftMargin = dp(4);
-    roomMarkParams.rightMargin = dp(8);
-    header.addView(roomMark, roomMarkParams);
     LinearLayout titles = vertical();
     LinearLayout titleLine = new LinearLayout(getActivity());
     titleLine.setGravity(Gravity.CENTER_VERTICAL);
-    heading = text(roomName, 18, ink);
+    heading = text(roomName, 17, ink);
     heading.setTypeface(null, Typeface.BOLD);
-    titleLine.addView(heading);
+    heading.setSingleLine(true);
+    heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    titleLine.addView(heading, new LinearLayout.LayoutParams(-2, -2, 1));
     identityBadge = text("匿名", 9, muted);
     identityBadge.setGravity(Gravity.CENTER);
     identityBadge.setPadding(dp(6), dp(3), dp(6), dp(3));
-    identityBadge.setBackground(shape(pale, 12));
+    identityBadge.setBackground(shape(chip, 12));
     LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
     badgeParams.leftMargin = dp(5);
     titleLine.addView(identityBadge, badgeParams);
@@ -490,11 +481,10 @@ public final class ChatFragment extends Fragment {
     list.setDivider(null);
     list.setDividerHeight(0);
     list.setCacheColorHint(bg);
-    // Match public/style.css mobile #messages insets.
-    list.setPadding(dp(13), dp(14), dp(13), dp(20));
+    list.setPadding(0, dp(8), 0, dp(10));
+    list.setVerticalScrollBarEnabled(false);
     list.setClipToPadding(false);
-    // Like the web message list, short histories start at the top. Transcript mode
-    // and the resize listener still follow the tail when a long history or IME resizes.
+    // Start short histories at the top, and keep following new messages at the tail.
     list.setStackFromBottom(false);
     list.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
     list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -521,7 +511,7 @@ public final class ChatFragment extends Fragment {
     emptyState.setPadding(dp(12), Math.round(getResources().getDisplayMetrics().heightPixels * 0.13f), dp(12), 0);
     TextView emptyMark = text("◌", 34, this.emptyMark);
     emptyMark.setGravity(Gravity.CENTER);
-    emptyMark.setBackground(shape(pale, 22));
+    emptyMark.setBackground(shape(chip, 22));
     emptyMark.setContentDescription(null);
     emptyMark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     emptyState.addView(emptyMark, new LinearLayout.LayoutParams(dp(58), dp(58)));
@@ -708,12 +698,12 @@ public final class ChatFragment extends Fragment {
     }
     LinearLayout composer = new LinearLayout(getActivity());
     composer.setGravity(Gravity.CENTER_VERTICAL);
-    // Match the website mobile composer-wrap inset and safe-area breathing room.
-    composer.setPadding(dp(10), dp(8), dp(10), dp(12));
+    composer.setBackgroundColor(topbar);
+    composer.setPadding(dp(8), dp(7), dp(8), dp(9));
     LinearLayout composerPill = new LinearLayout(getActivity());
     composerPill.setGravity(Gravity.CENTER_VERTICAL);
     composerPill.setPadding(dp(5), dp(3), dp(5), dp(3));
-    composerPill.setBackground(shape(pale, 30));
+    composerPill.setBackground(shape(chip, 22));
     attach = iconButton("＋", "添加照片或文件", this::pickFile);
     input = field("说点什么…", false);
     input.setContentDescription("消息内容");
@@ -754,9 +744,18 @@ public final class ChatFragment extends Fragment {
     voice = iconButton("🎙", "录制语音", this::startRecording);
     composerPill.addView(voice, new LinearLayout.LayoutParams(dp(44), dp(44)));
     send = iconButton("➤", "发送消息", this::sendText);
+    GradientDrawable sendMask = shape(Color.WHITE, 22);
+    send.setBackground(new RippleDrawable(android.content.res.ColorStateList.valueOf(0x33ffffff),
+        new android.graphics.drawable.LayerDrawable(new Drawable[] {
+            shape(nightMode ? 0xff8f442b : 0xffb65a2f, 22),
+            new ChatIconDrawable("发送消息", Color.WHITE, getResources().getDisplayMetrics().density)
+        }), sendMask));
     send.setVisibility(View.GONE);
     composerPill.addView(send, new LinearLayout.LayoutParams(dp(44), dp(44)));
     composer.addView(composerPill, new LinearLayout.LayoutParams(0, -2, 1));
+    View composerLine = new View(getActivity());
+    composerLine.setBackgroundColor(line);
+    content.addView(composerLine, new LinearLayout.LayoutParams(-1, dp(1)));
     content.addView(composer);
     input.addTextChangedListener(
         new TextWatcher() {
@@ -1252,7 +1251,7 @@ public final class ChatFragment extends Fragment {
     drawerOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
     drawerPanel = vertical();
     drawerPanel.setPadding(dp(20), dp(24), dp(18), dp(20));
-    drawerPanel.setBackground(shape(bg, 28));
+    drawerPanel.setBackground(shape(topbar, 22));
     drawerPanel.setElevation(dp(12));
     LinearLayout brandRow = new LinearLayout(getActivity());
     brandRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -1282,7 +1281,7 @@ public final class ChatFragment extends Fragment {
     drawerPanel.addView(profile, profileParams);
     ScrollView drawerScroll = new ScrollView(getActivity());
     drawerScroll.setFillViewport(false);
-    drawerScroll.setBackground(shape(bg, 28));
+    drawerScroll.setBackground(shape(topbar, 22));
     drawerScroll.setClipToOutline(true);
     drawerScroll.addView(drawerPanel, new ScrollView.LayoutParams(-1, -2));
     FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
@@ -1297,7 +1296,7 @@ public final class ChatFragment extends Fragment {
     Button b = button(label, action);
     b.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
     b.setPadding(dp(14), dp(7), dp(12), dp(7));
-    b.setBackground(shape(bg, 14));
+    b.setBackground(shape(pale, 14));
     LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(48));
     p.topMargin = dp(3);
     drawerPanel.addView(b, p);
@@ -1308,7 +1307,7 @@ public final class ChatFragment extends Fragment {
     if (drawerPanel == null) return;
     if (drawerPanel.getTag() instanceof Button) {
       Button lobby = (Button) drawerPanel.getTag();
-      lobby.setBackground(shape(room.equals("lobby") ? mine : bg, 20));
+      lobby.setBackground(shape(room.equals("lobby") ? chip : pale, 14));
       lobby.setSelected(room.equals("lobby"));
     }
   }
@@ -2514,20 +2513,27 @@ public final class ChatFragment extends Fragment {
     return value.trim().substring(0, value.trim().offsetByCodePoints(0, 1));
   }
 
-  private int avatarColor(String nickname) {
-    int[] colors = nightMode
-        ? new int[] {Color.rgb(126, 153, 107), Color.rgb(111, 142, 104), Color.rgb(149, 160, 116),
-            Color.rgb(111, 146, 132), Color.rgb(150, 151, 104), Color.rgb(130, 158, 139)}
-        : new int[] {Color.rgb(184, 202, 167), Color.rgb(166, 193, 154), Color.rgb(200, 213, 187),
-            Color.rgb(180, 201, 179), Color.rgb(181, 199, 162), Color.rgb(191, 208, 184)};
-    String value = nickname == null || nickname.isEmpty() ? "?" : nickname;
-    int hash = 0x811c9dc5;
-    for (int i = 0; i < value.length(); ) {
-      int codePoint = value.codePointAt(i);
-      hash = (hash ^ codePoint) * 0x01000193;
-      i += Character.charCount(codePoint);
-    }
-    return colors[Integer.remainderUnsigned(hash, colors.length)];
+  private static final int[] AVATAR_COLORS = {
+      0xffc66a3a, 0xff4e8d9c, 0xff8a7bb5, 0xffb5893a,
+      0xff5e9c6b, 0xffb15d7a, 0xff6e7e93, 0xffa85e3c
+  };
+
+  private TextView messageAvatar(String who) {
+    int hash = who == null ? 0 : who.hashCode();
+    TextView avatar = text(firstCodePoint(who), 14, Color.WHITE);
+    avatar.setTypeface(null, Typeface.BOLD);
+    avatar.setGravity(Gravity.CENTER);
+    int color = AVATAR_COLORS[Math.floorMod(hash, AVATAR_COLORS.length)];
+    avatar.setBackground(shape(color, 50));
+    avatar.setContentDescription(who + "的头像");
+    return avatar;
+  }
+
+  private LinearLayout.LayoutParams avatarParams(boolean outgoing) {
+    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(36), dp(36));
+    if (outgoing) params.setMarginStart(dp(8));
+    else params.setMarginEnd(dp(8));
+    return params;
   }
 
   private final class MessageAdapter extends BaseAdapter {
@@ -2562,74 +2568,62 @@ public final class ChatFragment extends Fragment {
       long ts = m.optLong("created");
       String nick = m.optString("nickname", "匿名");
       JSONObject previous = p > 0 ? getItem(p - 1) : null;
-      JSONObject following = p + 1 < getCount() ? getItem(p + 1) : null;
-      boolean grouped = previous != null && MessageGrouping.sameGroup(
-          previous.optBoolean("mine"), previous.optString("nickname", "匿名"), previous.optLong("created"),
-          mine, nick, ts);
-      boolean groupEnd = following == null || !MessageGrouping.sameGroup(
-          mine, nick, ts, following.optBoolean("mine"), following.optString("nickname", "匿名"),
-          following.optLong("created"));
-      // Mirror the web mobile message rhythm: 6px between rows, 21px after a group.
-      row.setPadding(0, dp(grouped ? 1 : 0), 0, dp(groupEnd ? 21 : 6));
-      if (p == 0
-          || !time(ts, "yyyy-MM-dd")
-              .equals(time(getItem(p - 1).optLong("created"), "yyyy-MM-dd"))) {
-        TextView day = text(MessageGrouping.dayLabel(ts, System.currentTimeMillis()), 11, muted);
+      row.setPadding(0, dp(5), 0, dp(5));
+      if (previous == null || MessageGrouping.showTimestamp(
+          previous.optLong("created"), ts)) {
+        TextView day = text(MessageGrouping.dayLabel(ts, System.currentTimeMillis())
+            + " " + time(ts, "HH:mm"), 11, muted);
         day.setGravity(Gravity.CENTER);
-        day.setPadding(dp(12), dp(4), dp(12), dp(4));
-        day.setBackground(shape(pale, 20));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.gravity = Gravity.CENTER;
-        lp.bottomMargin = dp(14);
-        lp.topMargin = dp(8);
+        lp.topMargin = dp(5);
+        lp.bottomMargin = dp(7);
         row.addView(day, lp);
+      }
+      if (deleted || "system".equals(m.optString("kind"))) {
+        TextView note = text(deleted ? "消息已删除" : m.optString("text"), 12, muted);
+        note.setGravity(Gravity.CENTER);
+        note.setPadding(dp(10), dp(4), dp(10), dp(4));
+        note.setMaxWidth(Math.max(dp(120), getResources().getDisplayMetrics().widthPixels - dp(80)));
+        note.setBackground(messageShape(false, true));
+        note.setContentDescription(deleted ? nick + "：消息已删除" : null);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-2, -2);
+        noteParams.gravity = Gravity.CENTER;
+        row.addView(note, noteParams);
+        return row;
       }
       LinearLayout messageRow = new LinearLayout(getActivity());
       messageRow.setOrientation(LinearLayout.HORIZONTAL);
-      // Baseline alignment overrides per-child bottom gravity and clips short avatar TextViews.
       messageRow.setBaselineAligned(false);
       messageRow.setGravity(Gravity.TOP);
-      messageRow.setPadding(dp(mine ? 37 : 0), 0, 0, 0);
-      if (!mine) {
-        TextView avatar = text(firstCodePoint(nick), 12, avatarInk);
-        avatar.setGravity(Gravity.CENTER);
-        avatar.setContentDescription(nick);
-        avatar.setBackground(shape(avatarColor(nick), 50));
-        avatar.setVisibility(groupEnd ? View.VISIBLE : View.INVISIBLE);
-        LinearLayout.LayoutParams avatarParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        avatarParams.rightMargin = dp(8);
-        avatarParams.bottomMargin = dp(24);
-        avatarParams.gravity = Gravity.BOTTOM;
-        messageRow.addView(avatar, avatarParams);
-      }
+      messageRow.setPaddingRelative(dp(mine ? 56 : 12), 0, dp(mine ? 12 : 56), 0);
+      if (!mine) messageRow.addView(messageAvatar(nick), avatarParams(false));
       LinearLayout wrap = vertical();
       wrap.setGravity(mine ? Gravity.END : Gravity.START);
-      if (!mine && !grouped) {
+      if (!mine) {
         TextView name = text(nick, 11, muted);
-        name.setPadding(dp(12), 0, 0, dp(4));
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        name.setPaddingRelative(dp(3), 0, 0, dp(3));
         wrap.addView(name);
       }
-      TextView bubble = new MessageBubbleView(getActivity(), mine, deleted, grouped, groupEnd, ChatFragment.this.mine, pale, ink, muted);
-      bubble.setLineSpacing(dp(5), 1);
-      bubble.setMaxWidth(Math.min(dp(580),
-          Math.max(dp(180), getResources().getDisplayMetrics().widthPixels - dp(mine ? 84 : 93))));
-      bubble.setPadding(dp(15), dp(11), dp(15), dp(11));
+      // Leave room for the avatar, source-style inset and 1dp container rounding.
+      int messageWidth = Math.max(dp(80), getResources().getDisplayMetrics().widthPixels - dp(114));
+      TextView bubble = new MessageBubbleView(getActivity(), ink);
+      bubble.setMaxWidth(Math.min(dp(280), messageWidth));
+      bubble.setBackground(messageShape(mine, false));
       String kind = m.optString("kind");
       View bubbleView = bubble;
-      if (deleted) {
-        bubble.setText("消息已删除");
-        bubble.setContentDescription(nick + "：消息已删除");
-      } else if (kind.equals("text")) {
+      if (kind.equals("text")) {
         bubble.setText(rich(m.optString("text")));
         bubble.setContentDescription(nick + "：" + m.optString("text"));
       } else if (kind.equals("image")) {
         LinearLayout card = vertical();
-        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine, false));
         card.setPadding(dp(6), dp(6), dp(6), dp(6));
         card.setContentDescription(nick + "：图片，轻触查看大图");
         FrameLayout imageFrame = new FrameLayout(getActivity());
-        int previewWidth = Math.min(dp(280), Math.max(dp(190),
-            getResources().getDisplayMetrics().widthPixels - dp(110)));
+        int previewWidth = Math.min(dp(268), messageWidth - dp(12));
         imageFrame.setLayoutParams(new LinearLayout.LayoutParams(previewWidth, dp(176)));
         imageFrame.setBackground(shape(pale, 16));
         imageFrame.setClipToOutline(true);
@@ -2651,7 +2645,7 @@ public final class ChatFragment extends Fragment {
         bubbleView = card;
       } else if (kind.equals("audio")) {
         LinearLayout card = vertical();
-        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine, false));
         card.setPadding(dp(12), dp(9), dp(12), dp(7));
         card.setContentDescription(nick + "：语音消息，轻触播放");
         LinearLayout controls = new LinearLayout(getActivity());
@@ -2674,7 +2668,8 @@ public final class ChatFragment extends Fragment {
         volume.setGravity(Gravity.CENTER);
         volume.setContentDescription("媒体音量由设备控制");
         controls.addView(volume, new LinearLayout.LayoutParams(dp(34), dp(38)));
-        card.addView(controls, new LinearLayout.LayoutParams(-1, dp(40)));
+        card.addView(controls, new LinearLayout.LayoutParams(
+            Math.min(dp(276), messageWidth) - dp(24), dp(40)));
         String audioInfo = "";
         if (m.optDouble("duration", 0) > 0)
           audioInfo = Math.round(m.optDouble("duration")) + " 秒";
@@ -2722,7 +2717,7 @@ public final class ChatFragment extends Fragment {
       } else if (kind.equals("video")) {
         LinearLayout card = vertical();
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
-        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine, false));
         card.setContentDescription(nick + "：视频，轻触预览播放");
         LinearLayout infoRow = new LinearLayout(getActivity());
         infoRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -2732,8 +2727,8 @@ public final class ChatFragment extends Fragment {
         infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
         LinearLayout details = vertical();
         details.setPadding(dp(10), 0, dp(4), 0);
-        int detailWidth = Math.min(dp(238), Math.max(dp(112),
-            getResources().getDisplayMetrics().widthPixels - dp(mine ? 180 : 220)));
+        int videoWidth = Math.min(dp(320), messageWidth);
+        int detailWidth = Math.max(dp(44), videoWidth - dp(124));
         TextView name = text(m.optString("filename", "视频"), 13, ink);
         name.setMaxWidth(detailWidth);
         name.setMaxLines(2);
@@ -2755,7 +2750,7 @@ public final class ChatFragment extends Fragment {
         play.setGravity(Gravity.CENTER);
         preview.addView(play, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
-            Math.min(dp(320), getResources().getDisplayMetrics().widthPixels - dp(72)), dp(180));
+            videoWidth - dp(24), dp(180));
         previewParams.topMargin = dp(9);
         card.addView(preview, previewParams);
         preview.setOnClickListener(v -> playInlineVideo(m, preview, play));
@@ -2767,7 +2762,7 @@ public final class ChatFragment extends Fragment {
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(13), dp(10), dp(13), dp(10));
-        card.setBackground(messageShape(mine ? ChatFragment.this.mine : pale, mine, grouped, groupEnd));
+        card.setBackground(messageShape(mine, false));
         card.setContentDescription(nick + "：文件，轻触保存");
         LinearLayout infoRow = new LinearLayout(getActivity());
         infoRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -2777,8 +2772,8 @@ public final class ChatFragment extends Fragment {
         infoRow.addView(glyph, new LinearLayout.LayoutParams(dp(42), dp(42)));
         LinearLayout details = vertical();
         details.setPadding(dp(10), 0, dp(4), 0);
-        int detailWidth = Math.min(dp(220), Math.max(dp(96),
-            getResources().getDisplayMetrics().widthPixels - dp(mine ? 194 : 238)));
+        int cardWidth = Math.min(dp(298), messageWidth);
+        int detailWidth = Math.max(dp(44), cardWidth - dp(130));
         TextView name = text(m.optString("filename", "文件"), 13, ink);
         name.setMaxWidth(detailWidth);
         name.setMaxLines(2);
@@ -2800,15 +2795,13 @@ public final class ChatFragment extends Fragment {
       LinearLayout.LayoutParams bubbleParams = new LinearLayout.LayoutParams(-2, -2);
       bubbleParams.gravity = mine ? Gravity.END : Gravity.START;
       wrap.addView(bubbleView, bubbleParams);
-      if (groupEnd) {
-        TextView stamp = text(time(ts, "HH:mm"), 10, muted);
-        stamp.setPadding(dp(15), dp(5), dp(15), 0);
-        LinearLayout.LayoutParams stampParams = new LinearLayout.LayoutParams(-2, -2);
-        stampParams.gravity = mine ? Gravity.END : Gravity.START;
-        wrap.addView(stamp, stampParams);
-      }
-      LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1f);
-      messageRow.addView(wrap, wp);
+      TextView stamp = text(time(ts, "HH:mm"), 10, muted);
+      stamp.setPadding(dp(4), dp(3), dp(4), 0);
+      LinearLayout.LayoutParams stampParams = new LinearLayout.LayoutParams(-2, -2);
+      stampParams.gravity = mine ? Gravity.END : Gravity.START;
+      wrap.addView(stamp, stampParams);
+      messageRow.addView(wrap, new LinearLayout.LayoutParams(0, -2, 1f));
+      if (mine) messageRow.addView(messageAvatar("我"), avatarParams(true));
       row.addView(messageRow, new LinearLayout.LayoutParams(-1, -2));
       if (!deleted) {
         if (kind.equals("text")) bubbleView.setOnLongClickListener(

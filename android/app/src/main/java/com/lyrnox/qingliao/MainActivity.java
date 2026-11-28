@@ -2,7 +2,6 @@ package com.lyrnox.qingliao;
 
 import android.app.*;
 import android.content.Intent;
-import android.graphics.Color;
 import android.os.*;
 import android.view.*;
 
@@ -15,7 +14,7 @@ public final class MainActivity extends Activity {
     boolean night = (getResources().getConfiguration().uiMode
         & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
         == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-    int bar = night ? Color.rgb(32, 41, 31) : Color.rgb(250, 251, 247);
+    int bar = night ? 0xff2a211b : 0xfffbf3e7;
     getWindow().setStatusBarColor(bar);
     getWindow().setNavigationBarColor(bar);
     if (Build.VERSION.SDK_INT >= 23) {
@@ -29,6 +28,7 @@ public final class MainActivity extends Activity {
     }
     android.widget.FrameLayout content = new android.widget.FrameLayout(this);
     content.setId(CONTENT);
+    content.setBackgroundColor(bar);
     if (Build.VERSION.SDK_INT >= 30) {
       getWindow().setDecorFitsSystemWindows(false);
       content.setOnApplyWindowInsetsListener(

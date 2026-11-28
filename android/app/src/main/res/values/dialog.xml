@@ -1,13 +1,13 @@
 <resources>
-  <color name="chat_dialog_surface">#FAFBF7</color>
-  <color name="chat_dialog_ink">#202B21</color>
-  <color name="chat_dialog_positive">#D7E5BE</color>
-  <color name="chat_dialog_negative">#EAF0E3</color>
+  <color name="chat_dialog_surface">#FBF3E7</color>
+  <color name="chat_dialog_ink">#201B15</color>
+  <color name="chat_dialog_positive">#F1E7D8</color>
+  <color name="chat_dialog_negative">#FFFFFF</color>
   <style name="ChatDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
     <item name="android:windowBackground">@drawable/chat_dialog_surface</item>
     <item name="android:colorBackground">@color/chat_dialog_surface</item>
     <item name="android:textColorPrimary">@color/chat_dialog_ink</item>
-    <item name="android:colorAccent">#54734B</item>
+    <item name="android:colorAccent">#A4532B</item>
     <item name="android:windowMinWidthMajor">88%</item>
     <item name="android:windowMinWidthMinor">90%</item>
     <item name="android:buttonBarPositiveButtonStyle">@style/ChatDialogPositiveButton</item>

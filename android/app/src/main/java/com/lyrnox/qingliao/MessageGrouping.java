@@ -5,18 +5,20 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 
-/** Matches the webpage's adjacent-message grouping rule. */
+/** Date labels and time separators for the live transcript. */
 final class MessageGrouping {
   private static final SimpleDateFormat DAY = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
 
   private MessageGrouping() {}
 
-  static boolean sameGroup(boolean mineA, String nicknameA, long createdA,
-      boolean mineB, String nicknameB, long createdB) {
-    return mineA == mineB
-        && equal(nicknameA, nicknameB)
-        && DAY.format(new Date(createdA)).equals(DAY.format(new Date(createdB)))
-        && Math.abs(createdA - createdB) < 300000L;
+  /** Separate transcript blocks when the day changes or the adjacent gap exceeds five minutes. */
+  static boolean showTimestamp(long previous, long timestamp) {
+    Calendar a = Calendar.getInstance(), b = Calendar.getInstance();
+    a.setTimeInMillis(previous);
+    b.setTimeInMillis(timestamp);
+    return a.get(Calendar.YEAR) != b.get(Calendar.YEAR)
+        || a.get(Calendar.DAY_OF_YEAR) != b.get(Calendar.DAY_OF_YEAR)
+        || timestamp - previous > 300000L;
   }
 
   static String dayLabel(long timestamp, long now) {
@@ -35,7 +37,4 @@ final class MessageGrouping {
         : new SimpleDateFormat("yyyy年M月d日", Locale.CHINA).format(new Date(timestamp));
   }
 
-  private static boolean equal(String a, String b) {
-    return a == null ? b == null : a.equals(b);
-  }
 }

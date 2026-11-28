@@ -1,56 +1,19 @@
 package com.lyrnox.qingliao;
 
 import android.content.Context;
-import android.graphics.*;
 import android.widget.TextView;
 
-/** Hand-drawn message surface, with native text selection/accessibility retained. */
+/** 聊记-style transcript typography; the row supplies the incoming/outgoing drawable. */
 final class MessageBubbleView extends TextView {
-  private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-  private final RectF bounds = new RectF();
-  private final Path path = new Path();
-  private final float radius;
-  private final boolean mine, grouped, groupEnd;
-
-  MessageBubbleView(Context context, boolean mine, boolean deleted, boolean grouped, boolean groupEnd,
-      int mineColor, int otherColor, int textColor, int mutedColor) {
+  MessageBubbleView(Context context, int textColor) {
     super(context);
-    this.mine = mine;
-    this.grouped = grouped;
-    this.groupEnd = groupEnd;
     float density = getResources().getDisplayMetrics().density;
-    radius = 21 * density;
-    paint.setColor(mine ? mineColor : otherColor);
-    setTextColor(deleted ? mutedColor : textColor);
-    setTextSize(16);
-    setPadding(
-        Math.round(15 * density),
-        Math.round(11 * density),
-        Math.round(15 * density),
-        Math.round(11 * density));
-    setLineSpacing(5 * density, 1);
+    setTextColor(textColor);
+    setTextSize(15);
+    int horizontal = Math.round(12 * density);
+    int vertical = Math.round(9 * density);
+    setPaddingRelative(horizontal, vertical, horizontal, vertical);
+    setLineSpacing(Math.round(2 * density), 1);
     setFontFeatureSettings("kern");
-    setBackgroundColor(Color.TRANSPARENT);
-  }
-
-  @Override
-  protected void onDraw(Canvas canvas) {
-    bounds.set(0, 0, getWidth(), getHeight());
-    float small = 11 * getResources().getDisplayMetrics().density;
-    float topLeft = radius, topRight = radius, bottomRight = radius, bottomLeft = radius;
-    if (grouped) {
-      if (mine) topRight = small;
-      else topLeft = small;
-    }
-    if (!groupEnd) {
-      if (mine) bottomRight = small;
-      else bottomLeft = small;
-    }
-    path.reset();
-    path.addRoundRect(bounds,
-        new float[] {topLeft, topLeft, topRight, topRight, bottomRight, bottomRight, bottomLeft, bottomLeft},
-        Path.Direction.CW);
-    canvas.drawPath(path, paint);
-    super.onDraw(canvas);
   }
 }
