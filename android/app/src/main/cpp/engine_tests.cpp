@@ -32,12 +32,14 @@ int main(){ql::Engine e;int checks=0;auto check=[&](bool b){if(!b){std::cerr<<"f
  check(rejects({{"op","send"},{"text",std::string(4001,'x')},{"clientId","id"}}));
  ql::Engine msgEngine;auto rejectsMessage=[&](J j){try{msgEngine.command(j);return false;}catch(...){return true;}};msgEngine.command({{"op","reset"},{"room","lobby"}});
  auto nativeRequest=msgEngine.command({{"op","send"},{"text"," hello native "},{"clientId","client-1"}});check(nativeRequest["text"]=="hello native"&&nativeRequest["clientId"]=="client-1");
- J sentMessage={{"id","server-1"},{"nickname","Guest"},{"client_id","client-1"},{"kind","text"},{"text","hello native"},{"created",1700000000000LL},{"mine",true},{"deleted",0}};
+ J sentMessage={{"id","server-1"},{"nickname","Guest"},{"authorId","author-one"},{"client_id","client-1"},{"kind","text"},{"text","hello native"},{"created",1700000000000LL},{"mine",true},{"deleted",0}};
  auto sendAccepted=msgEngine.command({{"op","send_response"},{"status",200},{"body",J{{"message",sentMessage}}.dump()},{"clientId","client-1"},{"text","hello native"},{"room","lobby"}});check(sendAccepted["message"]["id"]=="server-1"&&sendAccepted["count"]==1);
  check(msgEngine.command({{"op","snapshot"}})["messages"][0]["text"]=="hello native");
  msgEngine.command({{"op","event"},{"event",{{"type","message"},{"message",sentMessage}}}});check(msgEngine.command({{"op","snapshot"}})["messages"].size()==1);
- J otherMessage=sentMessage;otherMessage["id"]="server-2";otherMessage["client_id"]="client-2";otherMessage["text"]="received";otherMessage["mine"]=false;
+ J otherMessage=sentMessage;otherMessage["id"]="server-2";otherMessage["client_id"]="client-1";otherMessage["authorId"]="author-two";otherMessage["text"]="received";otherMessage["mine"]=false;
  msgEngine.command({{"op","event"},{"event",{{"type","message"},{"message",otherMessage}}}});check(msgEngine.command({{"op","snapshot"}})["messages"].size()==2&&msgEngine.command({{"op","snapshot"}})["messages"][1]["text"]=="received");
+ auto sameNick=msgEngine.command({{"op","snapshot"}})["messages"];
+ check(sameNick[0]["nickname"]==sameNick[1]["nickname"]&&sameNick[0]["authorId"]!=sameNick[1]["authorId"]);
  J mismatched=sentMessage;mismatched["client_id"]="wrong";
  check(rejectsMessage({{"op","send_response"},{"status",200},{"body",J{{"message",mismatched}}.dump()},{"clientId","client-3"},{"text","hello native"},{"room","lobby"}}));check(msgEngine.command({{"op","snapshot"}})["messages"].size()==2);
  msgEngine.command({{"op","reset"},{"room","another"}});check(rejectsMessage({{"op","send_response"},{"status",200},{"body",J{{"message",sentMessage}}.dump()},{"clientId","client-1"},{"text","hello native"},{"room","lobby"}}));check(msgEngine.command({{"op","snapshot"}})["messages"].empty());

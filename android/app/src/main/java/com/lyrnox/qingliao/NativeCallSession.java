@@ -346,7 +346,7 @@ final class NativeCallSession {
         if (!id.isEmpty() && !id.equals(selfId) && tracks != null && tracks.length() > 0) current.add(id);
         if (id.isEmpty()) continue;
         String nickname = member.optString("nickname", "");
-        if (!nickname.isEmpty()) memberNameById.put(id, nickname);
+        if (!nickname.isEmpty()) memberNameById.put(id, SessionIdentity.label(nickname, id));
         if (tracks == null) continue;
         for (int j = 0; j < tracks.length(); j++) {
           JSONObject track = tracks.optJSONObject(j);

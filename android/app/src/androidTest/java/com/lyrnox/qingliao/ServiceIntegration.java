@@ -22,10 +22,15 @@ final class ServiceIntegration {
         NativeCore core = new NativeCore()) {
       String suffix = UUID.randomUUID().toString().substring(0, 8),
           pw = UUID.randomUUID().toString();
-      a.api("/api/session", core.run("session", "nickname", "Android-test-A-" + suffix));
+      String sharedName = "Android-test-" + suffix;
+      JSONObject identityA = a.api("/api/session", core.run("session", "nickname", sharedName));
       checks++;
-      b.api("/api/session", core.run("session", "nickname", "Android-test-B-" + suffix));
+      JSONObject identityB = b.api("/api/session", core.run("session", "nickname", sharedName));
       checks++;
+      String authorA = identityA.getString("id"), authorB = identityB.getString("id");
+      if (authorA.equals(authorB) || !sharedName.equals(identityB.getString("nickname"))
+          || SessionIdentity.label(sharedName, authorA).equals(SessionIdentity.label(sharedName, authorB)))
+        throw new AssertionError("duplicate nicknames must remain distinct identities");
       JSONObject room =
           a.api(
               "/api/rooms",
@@ -80,6 +85,8 @@ final class ServiceIntegration {
         JSONObject message = MessageProtocol.send(core, (p, request) -> a.messagePost(p, request),
             path + "send", rid, body, cid);
         checks++;
+        if (!authorA.equals(message.getString("authorId")) || !message.getBoolean("mine"))
+          throw new AssertionError("incorrect message authorship");
         JSONObject duplicate = a.api(path + "send", payload).getJSONObject("message");
         if (!duplicate.getString("id").equals(message.getString("id")))
           throw new AssertionError("send idempotency");
@@ -92,6 +99,8 @@ final class ServiceIntegration {
         for (int i = 0; i < history.getJSONArray("messages").length(); i++) {
           JSONObject m = history.getJSONArray("messages").getJSONObject(i);
           if (m.getString("id").equals(message.getString("id"))) {
+            if (!authorA.equals(m.getString("authorId")) || m.getBoolean("mine"))
+              throw new AssertionError("same nickname must not imply same author");
             found = true;
             if (m.getBoolean("mine")) throw new AssertionError("peer ownership");
           }

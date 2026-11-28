@@ -103,3 +103,51 @@ test('emoji touch swipe stays inside viewport and panel scrolls with a reduced k
  await p.setViewportSize({width:390,height:844});await p.locator('#emojiPicker button').first().click();assert.equal(await p.locator('#messageText').inputValue(),'😀');await p.locator('#composer').evaluate(e=>e.requestSubmit());await p.locator('.message.mine .inline-emoji').last().waitFor();assert.equal(await p.locator('.message.mine .inline-emoji').last().getAttribute('alt'),'😀');
  }finally{await ctx.close()}
 });
+
+test('duplicate nicknames keep membership, messages and call targets distinct', {timeout:45000}, async()=>{
+ const contexts=await Promise.all([browser.newContext(),browser.newContext(),browser.newContext()]);
+ try {
+  const [first,second,observer]=await Promise.all(contexts.map(c=>c.newPage()));
+  await Promise.all([first,second,observer].map(p=>p.goto(base)));
+  await Promise.all([[first,'同名测试'],[second,'同名测试'],[observer,'同名观察']].map(async([p,name])=>{
+   await p.locator('#nickname').fill(name);await p.locator('#entryForm button').click();
+   await p.locator('#entry').waitFor({state:'hidden'});
+   await p.waitForFunction(()=>document.getElementById('connection').textContent.includes('已建立'));
+  }));
+  const [one,two]=await Promise.all([first,second].map(async p=>{const r=await api(p,'/api/session');assert.equal(r.status,200);assert.equal(r.body.nickname,'同名测试');return r.body.id}));
+  assert.notEqual(one,two);
+  const names=[one,two].map(id=>'同名测试 · #'+id.slice(0,8));
+  await observer.locator('#count').click();
+  for(const name of names)await observer.locator('#members').getByRole('button',{name,exact:true}).waitFor();
+  const clientId=crypto.randomUUID(), texts=['同名甲 '+clientId,'同名乙 '+clientId];
+  const m1=(await api(first,'/api/r/lobby/send','POST',{clientId,text:texts[0]})).body.message;
+  const m2=(await api(second,'/api/r/lobby/send','POST',{clientId,text:texts[1]})).body.message;
+  assert.notEqual(m1.id,m2.id);assert.equal(m1.authorId,one);assert.equal(m2.authorId,two);
+  assert.equal(m1.mine,true);assert.equal(m2.mine,true);
+  const row=p=>observer.locator(`#messageList article[data-id="${p.id}"]`);
+  for(const [msg,name] of [[m1,names[0]],[m2,names[1]]]){
+   await row(msg).locator('.nickname').getByText(name,{exact:true}).waitFor();
+   assert.equal(await row(msg).evaluate(n=>n.classList.contains('grouped')),false);
+  }
+  await row(m2).locator('.bubble').click({button:'right'});
+  await observer.getByRole('menuitem',{name:'回复',exact:true}).click();
+  assert.equal(await observer.locator('#replyName').textContent(),'回复 '+names[1]);
+  let target;
+  await observer.route('**/api/r/lobby/call-start',async route=>{
+   target=route.request().postDataJSON().target;
+   await route.fulfill({status:503,json:{error:'本地替身：仅检查选中的通话身份'}});
+  });
+  await observer.locator('#members').getByRole('button',{name:names[1],exact:true}).click();
+  const callRequest=observer.waitForResponse(r=>r.url().endsWith('/api/r/lobby/call-start'));
+  await observer.locator('#audioCall').click();await callRequest;assert.equal(target,two);
+  await observer.reload();
+  for(const [msg,name] of [[m1,names[0]],[m2,names[1]]])await row(msg).locator('.nickname').getByText(name,{exact:true}).waitFor();
+  const h=(await api(second,'/api/r/lobby/history')).body.messages;
+  assert.equal(h.find(m=>m.id===m1.id).mine,false);
+  assert.equal(h.find(m=>m.id===m2.id).mine,true);
+  assert.equal((await api(second,'/api/r/lobby/delete/'+m1.id,'POST',{})).status,403);
+  assert.equal((await api(first,'/api/r/lobby/delete/'+m1.id,'POST',{})).status,200);
+  assert.equal((await api(first,'/api/session','POST',{nickname:'ＡＤＭＩＮ'})).status,409);
+  assert.equal((await api(first,'/api/session','POST',{nickname:'同名观察'})).body.id,one);
+ } finally {await Promise.all(contexts.map(c=>c.close()));}
+});

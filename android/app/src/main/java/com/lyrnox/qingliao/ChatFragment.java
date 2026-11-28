@@ -1765,7 +1765,7 @@ public final class ChatFragment extends Fragment {
       localRenderer = renderer;
       localVideoTrack = track;
       track.addSink(renderer);
-      localVideoCell = callVideoTile(renderer, nickname + "（我）");
+      localVideoCell = callVideoTile(renderer, SessionIdentity.label(nickname, session == null ? "" : session.optString("id")) + "（我）");
       rebuildCallVideoGrid();
       updateCallVideoVisibility(true);
       renderCallPanel();
@@ -2060,6 +2060,14 @@ public final class ChatFragment extends Fragment {
     toast(room.equals("lobby") ? "大厅链接已复制" : "房号 " + room + " 的链接已复制，口令请另行告知对方");
   }
 
+  private static String memberLabel(JSONObject member) {
+    return SessionIdentity.label(member.optString("nickname", ""), member.optString("id", ""));
+  }
+
+  private static String messageLabel(JSONObject message) {
+    return SessionIdentity.label(message.optString("nickname", ""), message.optString("authorId", ""));
+  }
+
   private void showMembers() {
     if (getActivity() == null) return;
     ArrayList<String> choices = new ArrayList<>();
@@ -2074,7 +2082,7 @@ public final class ChatFragment extends Fragment {
       String id = member.optString("id", "");
       if (id.isEmpty() || id.equals(selfId)) continue;
       if (id.equals(selectedCallTargetId)) checked = choices.size();
-      choices.add(member.optString("nickname", "匿名"));
+      choices.add(memberLabel(member));
       ids.add(id);
     }
     String title = members.length() + " 人在线 · 选择通话范围";
@@ -2088,7 +2096,7 @@ public final class ChatFragment extends Fragment {
         .setTitle(title)
         .setSingleChoiceItems(choices.toArray(new String[0]), checked, (dialog, which) -> {
           selectedCallTargetId = ids.get(which);
-          selectedCallTargetName = choices.get(which).equals("多人通话") ? "" : choices.get(which);
+          selectedCallTargetName = selectedCallTargetId.isEmpty() ? "" : choices.get(which);
           render(false);
           toast(selectedCallTargetId.isEmpty()
               ? "已选择多人通话；语音/视频按钮将呼叫房间成员"
@@ -2359,7 +2367,7 @@ public final class ChatFragment extends Fragment {
         JSONObject member = members.optJSONObject(i);
         if (member != null && selectedCallTargetId.equals(member.optString("id"))) {
           stillOnline = true;
-          selectedCallTargetName = member.optString("nickname", "匿名");
+          selectedCallTargetName = memberLabel(member);
           break;
         }
       }
@@ -2518,14 +2526,14 @@ public final class ChatFragment extends Fragment {
       0xff5e9c6b, 0xffb15d7a, 0xff6e7e93, 0xffa85e3c
   };
 
-  private TextView messageAvatar(String who) {
-    int hash = who == null ? 0 : who.hashCode();
+  private TextView messageAvatar(String who, String identity, String description) {
+    int hash = identity.isEmpty() ? (who == null ? 0 : who.hashCode()) : identity.hashCode();
     TextView avatar = text(firstCodePoint(who), 14, Color.WHITE);
     avatar.setTypeface(null, Typeface.BOLD);
     avatar.setGravity(Gravity.CENTER);
     int color = AVATAR_COLORS[Math.floorMod(hash, AVATAR_COLORS.length)];
     avatar.setBackground(shape(color, 50));
-    avatar.setContentDescription(who + "的头像");
+    avatar.setContentDescription(description + "的头像");
     return avatar;
   }
 
@@ -2566,7 +2574,7 @@ public final class ChatFragment extends Fragment {
       boolean mine = m.optBoolean("mine"), deleted = m.optInt("deleted") != 0;
       LinearLayout row = vertical();
       long ts = m.optLong("created");
-      String nick = m.optString("nickname", "匿名");
+      String nick = messageLabel(m);
       JSONObject previous = p > 0 ? getItem(p - 1) : null;
       row.setPadding(0, dp(5), 0, dp(5));
       if (previous == null || MessageGrouping.showTimestamp(
@@ -2597,13 +2605,13 @@ public final class ChatFragment extends Fragment {
       messageRow.setBaselineAligned(false);
       messageRow.setGravity(Gravity.TOP);
       messageRow.setPaddingRelative(dp(mine ? 56 : 12), 0, dp(mine ? 12 : 56), 0);
-      if (!mine) messageRow.addView(messageAvatar(nick), avatarParams(false));
+      if (!mine) messageRow.addView(messageAvatar(m.optString("nickname", "匿名"), m.optString("authorId", ""), nick), avatarParams(false));
       LinearLayout wrap = vertical();
       wrap.setGravity(mine ? Gravity.END : Gravity.START);
       if (!mine) {
         TextView name = text(nick, 11, muted);
         name.setSingleLine(true);
-        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         name.setPaddingRelative(dp(3), 0, 0, dp(3));
         wrap.addView(name);
       }
@@ -2801,7 +2809,7 @@ public final class ChatFragment extends Fragment {
       stampParams.gravity = mine ? Gravity.END : Gravity.START;
       wrap.addView(stamp, stampParams);
       messageRow.addView(wrap, new LinearLayout.LayoutParams(0, -2, 1f));
-      if (mine) messageRow.addView(messageAvatar("我"), avatarParams(true));
+      if (mine) messageRow.addView(messageAvatar("我", "", "我"), avatarParams(true));
       row.addView(messageRow, new LinearLayout.LayoutParams(-1, -2));
       if (!deleted) {
         if (kind.equals("text")) bubbleView.setOnLongClickListener(
@@ -2875,8 +2883,8 @@ public final class ChatFragment extends Fragment {
       downloadForSave(m);
     } else if (action.equals("回复")) {
       if (input != null) {
-        replyPrefix = ReplyDraft.prefix(m.optString("nickname", "匿名用户"), value);
-        if (replyName != null) replyName.setText("回复给 " + m.optString("nickname", "匿名用户"));
+        replyPrefix = ReplyDraft.prefix(messageLabel(m), value);
+        if (replyName != null) replyName.setText("回复给 " + messageLabel(m));
         if (replyText != null) replyText.setText(ReplyDraft.preview(value));
         if (replyDraft != null) replyDraft.setVisibility(View.VISIBLE);
         input.requestFocus();

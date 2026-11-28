@@ -13,15 +13,9 @@ export function normalizeNickname(raw:string):string{
 }
 // 系统保留昵称：普通会话禁止使用，防冒充站主/官方。
 export const RESERVED_NICKNAMES=new Set(['lyrnox','admin','administrator','system','系统','客服','官方','站长','版主','moderator']);
-// 昵称占用校验：仅看未过期会话，过期即释放；改名时排除自己。
-// 注意：这是应用层校验，并发下仍可能有竞态，但昵称冲突只是显示问题，
-// 不涉及权限，409 已能挡住绝大多数冒充；不要为此加唯一索引改表结构。
-export async function claimNickname(env:Env,nickname:string,selfId?:string):Promise<void>{
+// 昵称仅用于展示，允许重名；会话 ID 才是身份。
+export function validateNickname(nickname:string):void{
   need(!RESERVED_NICKNAMES.has(nickname.toLowerCase()),409,'该昵称已被保留');
-  const taken=await env.DB.prepare(
-    "SELECT id FROM anonymous_sessions WHERE nickname=? COLLATE NOCASE AND expires>? AND id!=?"
-  ).bind(nickname,now(),selfId??'').first();
-  need(!taken,409,'该昵称已被占用');
 }
 export function cid(v:unknown){return text(v,80)}
 export const json=(v:unknown,status=200,headers:HeadersInit={})=>Response.json(v,{status,headers:{'Cache-Control':'no-store',...headers}});
@@ -38,4 +32,4 @@ export async function roomAuth(env:Env,room:string,s:Session){const r=await env.
 export async function rate(env:Env,key:string,max:number,ms=60000,cost=1){const stub=env.GUARD.get(env.GUARD.idFromName(key));const r=await stub.fetch('https://guard/check',{method:'POST',body:JSON.stringify({max,ms,cost})});need(r.ok,429,'操作过于频繁，请稍后重试')}
 export function origin(req:Request){const u=new URL(req.url);need(req.headers.get('origin')===u.origin,403,'请求来源不受信任')}
 export function mediaKind(mime:string,requested:string){const base=mime.split(';')[0].toLowerCase();if(requested==='audio'){need(['audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav'].includes(base),415,'不支持的录音格式');return 'audio'}if(['image/png','image/jpeg','image/gif','image/webp'].includes(base))return 'image';if(['video/mp4','video/webm','video/ogg','video/quicktime'].includes(base))return 'video';return 'file'}
-export function publicMessage(m:any,sid:string){const {author,object_key,...rest}=m;return {...rest,mine:author===sid}}
+export function publicMessage(m:any,sid:string){const {author,object_key,...rest}=m;return {...rest,authorId:author,mine:author===sid}}

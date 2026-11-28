@@ -110,3 +110,14 @@ test('410 cleanup remains classifiable internally when client diagnostics are di
  assert.equal(f.store.get('call').cleanup.length,0);
  const next=await operation(f,'start',f.alice,{kind:'audio',target:'bob'});assert.ok(next.call);
 }));
+
+test('same-name members retain separate one-to-one call identity',async()=>withProvider(fixture(),async f=>{
+ f.alice.nickname='同名';f.bob.nickname='同名';f.other.nickname='同名';
+ const start=await operation(f,'start',f.alice,{kind:'audio',target:f.bob.id});
+ assert.equal(start.call.owner,f.alice.id);assert.equal(start.call.target,f.bob.id);
+ assert.equal((await operation(f,'state',f.bob)).call.invited,true);
+ assert.equal((await operation(f,'state',f.other)).call.invited,false);
+ await operation(f,'join',f.alice,{callId:start.call.id});
+ const second=await operation(f,'join',f.bob,{callId:start.call.id});
+ assert.deepEqual(second.call.members.map(m=>[m.id,m.nickname]),[[f.alice.id,'同名'],[f.bob.id,'同名']]);
+}));
