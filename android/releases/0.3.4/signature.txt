@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=Qingliao Android Release, O=Lyrnox
+Signer #1 certificate SHA-256 digest: 76c1f82df878d1712f5ca20f25f76ed8f3b6d135c3e004f9e7830f73a3f1be50
+Signer #1 certificate SHA-1 digest: b9df9bcf401d691fd16c967ae1e74293188261ad
+Signer #1 certificate MD5 digest: 18a77f3bf6caa0eb88f75e8320ee1e2b
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 3072
+Signer #1 public key SHA-256 digest: 4232967a9fd7350b9e5ea2ed0218b3d19e24773bebc3b084f9bfe8a9a31e5abf
+Signer #1 public key SHA-1 digest: a0456ea300a61118ba96ebf9b0788d609bc45ace
+Signer #1 public key MD5 digest: 18634ac5386eaa34ddd74d906ce4b88a
