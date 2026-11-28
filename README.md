@@ -1,171 +1,310 @@
-# 轻聊：Cloudflare 匿名聊天室
+<div align="center">
 
-当前部署状态与未完成验收见[部署状态](docs/DEPLOYMENT_STATUS.md)。`workers.dev` 地址仍有 1101；自定义测试域名 `https://chat.lyrnox.com` 用于隔离测试 Worker。部署和验收记录见下方文档。
+# 轻聊 · Qingliao
 
-一个独立的 TypeScript Worker 项目。页面与 API 同源，由一个 Worker 提供静态资源；房间 Durable Object 负责顺序写入后的广播与 WebSocket Hibernation，D1 保存房间/消息/匿名权限/通话记录，私有 R2 保存文件，Cloudflare Realtime SFU 转发媒体。不是静态聊天演示，没有预置消息、模拟在线人数或假通话。
+**登录即用的匿名聊天室 —— 文字、图片、语音、文件与实时音视频，全部跑在 Cloudflare 边缘。**
 
-## 交付状态：请先读
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](#-客户端)
+[![Realtime SFU](https://img.shields.io/badge/WebRTC-Realtime%20SFU-0EA5E9)](https://developers.cloudflare.com/realtime/)
+[![Status](https://img.shields.io/badge/status-active-success)](#-状态与限制)
+[![License](https://img.shields.io/badge/license-Proprietary-lightgrey)](#-许可)
 
-已经实际通过本机 Wrangler/D1/R2/DO 模拟器和 Chromium 双独立浏览器会话测试：免注册大厅、真实 WebSocket 收发、刷新历史、发送幂等、作者删除、私人房间口令/隔离、文件上传确认/短票据下载/删除、图片解码和浏览器录制视频的真实上传展示、麦克风 MediaRecorder 录制与音频解码、XSS 纯文本、错误及跨站请求校验。类型检查、JS 语法与 Wrangler 打包已实际执行。本地集成与 SFU 合同测试会随功能迭代更新；只有本地浏览器模拟器测试通过不等于 Cloudflare 线上或手机真机验收。
+<img src="docs/screenshots/chat-light.png" width="300" alt="轻聊 · 聊天界面">
+<img src="docs/screenshots/chat-dark.png" width="300" alt="轻聊 · 深色模式">
 
-SFU 使用 Cloudflare Realtime 的发布/订阅、协商、参与者租约和轨道控制。线上真实媒体是否通过，以 `docs/DEPLOYMENT_STATUS.md` 中带日期的双浏览器结果为准；测试浏览器合成媒体不等于手机真机验收。未配置 SFU 时相关接口明确返回 503。
+</div>
 
-现有隔离测试 Worker 已由站主配置并部署；本仓库上传没有触发 Cloudflare 部署、创建资源或升级套餐。`wrangler.test.jsonc` 指向隔离测试资源；不要将线上测试命令指向生产 Worker。
+---
 
-## 1. 安装与本地运行
+## 目录
 
-使用 Node 22 或更新版本、pnpm 10（锁文件已固定；可用 `corepack enable` 后 `corepack prepare pnpm@10.32.1 --activate`）。
+- [简介](#-简介)
+- [功能特性](#-功能特性)
+- [界面预览](#-界面预览)
+- [架构](#-架构)
+- [技术栈](#-技术栈)
+- [快速开始](#-快速开始)
+- [部署到 Cloudflare](#-部署到-cloudflare)
+- [配置项](#-配置项)
+- [安全与隐私](#-安全与隐私)
+- [Android 客户端](#-客户端)
+- [目录结构](#-目录结构)
+- [文档](#-文档)
+- [状态与限制](#-状态与限制)
+- [Roadmap](#-roadmap)
+- [贡献](#-贡献)
+- [许可](#-许可)
 
-```sh
+---
+
+## 简介
+
+**轻聊（Qingliao）** 是一个免注册的匿名聊天室。打开网页即可进入公共大厅或凭口令进入私人房间，进行文字、图片、语音、视频、文件消息与实时音视频通话。
+
+它是一套完整的全栈产品，而非静态演示：
+
+- **服务端**是一个部署在 Cloudflare 边缘的 TypeScript Worker，页面与 API 同源；
+- **实时链路**由 Durable Object（房间顺序写入 + WebSocket Hibernation）承担；
+- **数据**落在 D1（房间 / 消息 / 匿名会话 / 通话记录）、**私有** R2（媒体）与 **Cloudflare Realtime SFU**（音视频转发）；
+- **客户端**既有优先移动端的 Web 前端，也有一个原生 Android 客户端（非 WebView 套壳）。
+
+> 演示站点：<https://chat.lyrnox.com>（隔离测试 Worker，可能重置）
+
+---
+
+## ✨ 功能特性
+
+**聊天与房间**
+- 免注册匿名进入；昵称可重名，用会话短码区分
+- 公共大厅 + 私人房间（口令进入，PBKDF2-SHA256 + 每房随机盐）
+- 房间号可直接分享复制，旧链接 / UUID 房号保持兼容
+- WebSocket 实时收发、在线成员、未读提示、历史消息游标分页
+- 消息分组、日期分隔、引用回复、复制与撤回（删除自己的消息）
+
+**富媒体**
+- 文本（4000 字）、图片、语音录制、视频、普通文件
+- 分类型大小限制；上传授权 → 确认 → 私有 R2 存储 → 短票据授权下载
+- 图片灯箱预览、视频内联 / 全屏播放、音频进度播放
+
+**实时音视频**
+- 基于 Cloudflare Realtime SFU / WebRTC 的语音与视频通话
+- 一对一呼叫与多人通话，接听 / 拒绝 / 静音 / 关闭摄像头 / 切换镜头 / 音频路由
+- 移动端优化：**通话控制条（含挂断）常驻可见**，支持**一键全屏看人**
+
+**界面**
+- 微信 / 聊记风格：暖米色底、绿色发出气泡、白底描边收到气泡、彩色头像
+- 自动深色模式；现代无障碍语义与键盘操作
+
+**安全**
+- 列级参数化 SQL、CSP、CSRF（Origin + `SameSite=Strict`）、HMAC 下载票据
+- 服务端原子限流（Durable Object）、私有 R2、SFU Secret 永不下发
+
+---
+
+## 界面预览
+
+| 进入 / 昵称 | 聊天（浅色） | 聊天（深色） |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/entry.png" width="230"> | <img src="docs/screenshots/chat-light.png" width="230"> | <img src="docs/screenshots/chat-dark.png" width="230"> |
+
+| 通话控制条（挂断常驻） | 通话全屏 |
+|:---:|:---:|
+| <img src="docs/screenshots/call-controls.png" width="300"> | <img src="docs/screenshots/call-fullscreen.png" width="300"> |
+
+---
+
+## 架构
+
+```mermaid
+flowchart LR
+  subgraph Client[客户端]
+    B[浏览器 Web]
+    A[Android 原生]
+  end
+  B -->|HTTPS / WSS| W[Cloudflare Worker]
+  A -->|HTTPS / WSS| W
+  W --> STATIC[静态资源 Assets]
+  W --> ROOM[ChatRoom Durable Object<br/>顺序写入 · WS 广播]
+  W --> GUARD[Guard Durable Object<br/>原子限流]
+  ROOM --> D1[(D1 数据库)]
+  W --> R2[(R2 私有存储)]
+  ROOM --> SFU[Realtime SFU]
+  SFU <-->|WebRTC 媒体| Client
+```
+
+| 组件 | 职责 |
+|---|---|
+| **Worker** | 同源提供页面与 API；会话、房间、上传授权、受保护下载、定时清理 |
+| **ChatRoom (DO)** | 单房间权威写入与广播，WebSocket Hibernation，历史 / 成员 / 通话状态 |
+| **Guard (DO)** | 跨请求的原子固定窗口限流（可跨休眠恢复） |
+| **D1** | 房间、消息、匿名会话、上传、通话与限流记录 |
+| **R2** | 私有媒体对象（staging → media，从不对外暴露裸链接） |
+| **Realtime SFU** | 语音 / 视频发布订阅与轨道转发；TURN 可按需配置 |
+
+---
+
+## 🧱 技术栈
+
+- **运行时**：Cloudflare Workers · Durable Objects（SQLite）· D1 · R2 · Cron Triggers
+- **服务端**：TypeScript，WebCrypto（PBKDF2 / HMAC / SHA-256），`aws4fetch` 签名 R2 直传
+- **前端**：原生 HTML / CSS / JavaScript（无框架），WebSocket、MediaRecorder、WebRTC
+- **实时媒体**：Cloudflare Realtime SFU（发布 / 订阅 / 协商 / 租约）
+- **Android**：原生 Java + JNI/C++ 引擎 + OkHttp + WebRTC SDK（非 WebView）
+
+---
+
+## 🚀 快速开始
+
+需要 **Node ≥ 22**、**pnpm 10**（`corepack enable` 后 `corepack prepare pnpm@10.32.1 --activate`）。
+
+```bash
+# 1) 安装依赖
 pnpm install --frozen-lockfile
+
+# 2) 本地环境变量（DEV_LOCAL=true，APP_SECRET 至少 32 位随机）
 cp .dev.vars.example .dev.vars
-# 编辑 .dev.vars，DEV_LOCAL=true，APP_SECRET 用 openssl rand -hex 32 生成
+#   APP_SECRET 可用：openssl rand -hex 32
+
+# 3) 初始化本地数据库
 pnpm db:local
+
+# 4) 启动开发服务器
 pnpm dev
-# 打开 http://localhost:8787，另开无痕窗口作为第二个人
+# 打开 http://localhost:8787 ，另开无痕窗口作为第二个人
 ```
 
-`.dev.vars` 不进版本库。示例的 APP_SECRET 是占位符，不应直接用于公开部署。本地 HTTP 只允许 DEV_LOCAL=true；生产 Cookie 必须 Secure。不要把 DEV_LOCAL=true 放入生产配置。SFU 真实测试需额外填入下述配置，并在浏览器可用的 localhost/HTTPS 环境运行。
+常用脚本：
 
-```sh
-pnpm exec playwright install --with-deps chromium
-pnpm check
-# 单独执行：pnpm typecheck；pnpm test（仅本地测试）
-# 双浏览器线上验收（会在隔离测试 D1 留下测试会话/房间/消息）：pnpm test:remote
-# 线上目标默认 https://chat.lyrnox.com；临时覆盖：CHAT_TEST_BASE_URL=https://chat.example.com pnpm test:remote
-# 打包检查（不部署）：pnpm exec wrangler deploy --dry-run --outdir .build
+```bash
+pnpm typecheck     # 类型检查
+pnpm test          # 本地集成 + SFU 契约测试
+pnpm check         # 类型 + 测试 + JS 语法 + 打包预演
+pnpm test:remote   # 双浏览器线上验收（会写入隔离测试 D1）
 ```
 
-本地测试 `pnpm test` 会启动 8787 端口的 Wrangler；测试前关闭手动启动的本地实例。它需要配置 `.dev.vars`，并自动创建独立临时模拟库、执行迁移，结束后清理，不使用开发库或远程数据库。线上 `pnpm test:remote` 是单独命令，使用两个独立浏览器并会在目标测试 Worker 的 D1 写入测试会话、消息和私人房间记录；不要对生产运行。当前仓库没有配置 GitHub Actions。测试结果打印在终端；本地截图写入 `tests/`，远程截图写入 `test-results/`，这些生成文件不进版本库。
+---
 
-## 2. Cloudflare 初始化与部署（自行确认后执行）
+## ☁️ 部署到 Cloudflare
 
-以下命令会修改你的 Cloudflare 账号，创建资源或部署 Worker；交付过程中未执行。
-
-```sh
+```bash
+# 一次性初始化（会创建/修改你的 Cloudflare 资源）
 pnpm exec wrangler login
-pnpm exec wrangler whoami
 pnpm exec wrangler d1 create chat
 pnpm exec wrangler r2 bucket create anonymous-chat-media
-```
+# 将返回的 database_id 填入 wrangler.jsonc 的 d1_databases[0]
 
-将建库返回的 ID 填入 `wrangler.jsonc` 的 `d1_databases[0].database_id`。如果名称已存在，请选独立名称并同步修改 database_name、bucket_name 和 vars.R2_BUCKET；不要覆盖别人的应用。保持绑定名 `DB`、`MEDIA`、`ROOMS`、`GUARD`、`ASSETS` 与代码一致。Durable Object 类名为 `ChatRoom`、`Guard`，使用 SQLite-backed DO，首次迁移 `v1/new_sqlite_classes`。**已上线的 DO 迁移不可随意修改/删除旧 tag**。
-
-```sh
+# 应用迁移 + 设置密钥
 pnpm exec wrangler d1 migrations apply chat --remote
 pnpm exec wrangler secret put APP_SECRET
-# 输入随机生成的至少32字符安全密钥，不使用聊天室口令
-```
-
-R2 bucket 保持 Private，不开启 r2.dev public access 或公开域名。Worker 的 `MEDIA` binding 负责上传兜底、确认、删除和授权下载，不需要 S3 API 密钥。若没有 S3 凭据，浏览器把文件流式发到同源 Worker，Worker 再流式写入私有桶；不会把文件整体读入内存，但会经过 Worker。若希望浏览器直接 PUT 到 R2，可创建仅对目标 bucket 有 Object Read & Write 权限的 R2 S3 API Token（控制台 R2 → Manage R2 API Tokens → Object Read & Write → 指定该 bucket），随后将以下值安全设置为 Worker secrets/vars：
-
-```sh
-pnpm exec wrangler secret put R2_ACCESS_KEY_ID
-pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY
-# R2_ACCOUNT_ID 是账号 ID，不是秘密；在 Worker vars 中配置。
-```
-
-不要把 Cloudflare 全账号 API token 当成 R2 Access Key；不要粘贴到前端、Git 或聊天记录。设置 `wrangler.jsonc` 的 `R2_BUCKET` 与真实名称一致。配置 S3 凭据后，服务端签发预签名 PUT；未配置时自动使用同源 Worker 流式路径，不会因此禁用文件消息。
-
-### R2 CORS 和清理
-
-将 `r2-cors.example.json` 内的 Origin 改成你的真实站点源（含 https，无路径），临时预览域也需明确列出。不使用 `*`。
-
-```sh
-pnpm exec wrangler r2 bucket cors set anonymous-chat-media --file r2-cors.example.json
-pnpm exec wrangler r2 bucket cors list anonymous-chat-media
-```
-
-配置 S3 token 时，浏览器以 PUT 直接上传到 R2 S3 endpoint；`Content-Type` 与 `Content-Length` 签入，有效期 120 秒，浏览器自动发送 `Content-Length`。该模式需要 bucket CORS。没有 S3 token 时，浏览器改为同源 Worker PUT，Worker 以 `MEDIA` binding 将 request body 流式写到随机 staging key，并用条件更新解决并发/取消竞争。两种方式上传完成后都由服务端检查大小/类型，确认时再 stream-copy 到从未暴露写授权的 `media/` key，随后写消息并广播。S3 预签名 URL 在过期前可重复 PUT，**不是一次性 URL，也不能声称立刻吊销**。
-
-15 分钟 Cron 清理待上传/取消/已完成 staging 及删除队列。已完成消息无自动 TTL。建议另设 R2 生命周期规则：仅 `staging/` 前缀 1 天过期，作为任务失败时兜底，**不要给整个 bucket 设置自动删除**。本项目每次 Cron 最多处理各100项；大规模使用需监控积压、增加批量预算/清理频次。删除后数据库消息立即变为 tombstone，下载立即拒绝；R2 文件由垃圾队列在下一次成功 Cron 删除，不冒称瞬间物理擦除。浏览器已下载内容及已经开始的下载无法撤销。
-
-### Realtime SFU 与 TURN
-
-控制台 Realtime → SFU → 创建独立 App，取得 App ID 与 App Secret（某些控制台仍称 Calls）。如果账号未开通、被限制或需接受计费条款，先由账号所有者完成；本任务没有开通或付费权限。配置：
-
-```sh
+# 可选：R2 S3 直传凭据 / SFU / TURN
 pnpm exec wrangler secret put SFU_APP_ID
 pnpm exec wrangler secret put SFU_APP_SECRET
-# 推荐为限制性网络配置 Realtime TURN Key 与对应 API token
-pnpm exec wrangler secret put TURN_KEY_ID
-pnpm exec wrangler secret put TURN_API_TOKEN
-```
 
-TURN token 只需该 TURN Key 所需权限。TURN API 由服务端请求短期 iceServers，ttl=3600；未配置时仅 Cloudflare STUN，严格 NAT/防火墙可能失败，不保证全部网络连通。**SFU App Secret 永不下发**。浏览器持短期、会话/通话绑定 HMAC capability 访问同源媒体信令代理；代理重新检查房间访问权限和参与资格，远端 sessionId/trackName 只从服务端映射取，不能让客户端随意订阅别人的 SFU session。这里没有臆造 Cloudflare “SFU JWT 登录”接口；SFU REST 使用服务端 Bearer Secret。
-
-SFU 适配层在 `src/sfu.ts`：`POST /sessions/new` → `POST /sessions/{id}/tracks/new` 发布 offer/answer；接收轨道由 SFU 返回 offer，浏览器生成 answer 后 `PUT /sessions/{id}/renegotiate`；退出通过 `PUT /tracks/close`，`force:true`。没有 session DELETE 接口，不伪造它。媒体 ID、待清理队列与租约写入 DO storage；参与记录写入 D1。会话失败而结果不明不自动重放同一个媒体写请求；已知资源关闭失败保留队列由 alarm 重试。若创建 session 的响应在获得 ID 前丢失，无法定向关闭未知 ID，只能依赖服务商空会话超时，这是外部 API 的不确定性边界。
-
-每房默认最多8人，统一 SFU 发布/订阅，不使用全网状 P2P。每房同时1个通话；一对一只允许发起者与目标会话加入。选中在线成员再点语音/视频是一对一；不选成员为多人通话。多人房间成员点接听/加入。30秒无人/无人接听超时，45秒租约，15秒 alarm 清理。页面退出先停止本地媒体，再尽力发 keepalive；服务端即使没收到也通过租约清理。网络恢复优先等6秒，最多2次重新加入；一对一退出会结束该通话，可能需要重新呼叫，不保证无缝迁移。没有录制、屏幕共享或媒体长期保存。
-
-### 发布与自定义域名
-
-确认 R2/SFU 计费和数据政策后：
-
-```sh
+# 部署
 pnpm typecheck
 pnpm exec wrangler deploy --dry-run --outdir .build
 pnpm exec wrangler deploy
 ```
 
-使用 Wrangler 实际返回的 `workers.dev` 地址，不要根据 name 猜测已经上线。自定义域名：Cloudflare Worker → Settings → Domains & Routes → Add Custom Domain，选择账号已有 zone 下的子域并完成证书；或者在配置添加 `routes: [{pattern:"chat.example.com", custom_domain:true}]`，再部署。同步更新 R2 CORS。域名变更后 Cookie 不跨域迁移，私人房间需重新验证口令。生产环境请保持 HTTPS。
+R2 保持私有；如需浏览器直传，按 `r2-cors.example.json` 配置 CORS（用你的真实站点源，不要用 `*`）。自定义域名在 Worker → Settings → Domains & Routes 绑定，并同步更新 CORS。
 
-## 3. 安全、数据和限制
+---
 
-- 昵称允许重名，不是可恢复账号。Cookie 为服务端随机 token（DB仅存SHA-256）、HttpOnly、SameSite=Strict、生产Secure，7天过期。刷新保留昵称和房间；本地存储仅保存昵称与房间ID，不存口令/授权token。匿名作者只能删除当前仍有效的浏览器会话所发消息，换设备或会话到期不能找回作者身份。
-- 私人房间口令在服务端 PBKDF2-SHA256 100,000 次、每房随机盐。此迭代值为 Workers WebCrypto 可运行折中，不应称为最强防离线破解；要求至少8字符，建议使用高熵随机口令。Worker 按IP/会话限速口令尝试。私人房间访问授权2小时，原Cookie会话内刷新/断线重连可复用，到期重输。
-- Worker每业务请求检查会话/房间，WS建连和客户端心跳重新检查；广播检查附件授权有效期；通话alarm也核验权限。HTTP写入与WS校验严格同源Origin；GET媒体仍需Cookie、房间授权和60秒下载票据。下载通过绑定流式转发，**不会给客户端裸R2 GET链接**，复制票据到另一个浏览器无效。
-- 文本4000字符，昵称32，房名80。文件上限集中于 `src/shared.ts/LIMITS`：图片10MiB、语音10MiB、视频100MiB、普通文件50MiB。上传按申报大小限额并签实际大小，确认时再读实际R2对象size与Content-Type。Content-Type验证不是杀毒/内容真伪鉴定；不支持内嵌SVG/HTML文件执行，其他文件强制attachment和nosniff。服务不做恶意软件扫描或转码。
-- Guard DO为服务端原子固定窗口限流（存储可跨休眠恢复）。每IP每小时最多30新会话、5私人房间、30上传/500MiB；每会话每分钟40消息、每小时10上传/200MiB；房间口令每IP与会话每分钟10次；发起呼叫每分钟6次；通话API每分钟120次。读历史50条游标分页。单房最多200个WS，按匿名会话去重人数，多标签页非重复用户。固定窗口/匿名IP不是强抗女巫方案；大范围公开前应加WAF/Turnstile、预算告警和管理员滥用处理。不能承诺只靠这些限额杜绝攻击。
-- 幂等约束 `(room_id,author,client_id)`；文本先D1成功再广播，重试同id不重复插入。上传未确认不会创建消息；最终对象流式复制与D1不是跨服务事务，失败时保留上传行供重试/清扫。删除只保留最少元数据与tombstone，正文/对象引用清空，不是仅前端隐藏。
-- 没有E2EE；服务端处理并保存聊天记录。默认无限期保存文本和确认媒体；必要通话元数据同样无自动TTL，**不保存通话媒体**。需要保留周期或人工删除房间，应先制定规则和备份策略再扩展。没有账号、管理员后台、房间口令重置、举报/审查、全站导出或加密备份界面。
-- 没有在应用日志输出正文/口令/Secret/签名URL，observability默认关闭。自行开启访问日志/第三方统计时要过滤query票据及媒体签名。不要把真实Secrets放入测试记录。
+## ⚙️ 配置项
 
-## 4. 文件结构
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `APP_SECRET` | Secret | ≥32 位随机串，用于 HMAC 签名（下载票据等） |
+| `DEV_LOCAL` | Var | 本地开发置 `true`；生产必须为 `false` |
+| `R2_BUCKET` | Var | R2 桶名 |
+| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Var / Secret | 可选；配置后启用 S3 预签名直传，否则走同源 Worker 流式上传 |
+| `SFU_APP_ID` / `SFU_APP_SECRET` | Secret | Cloudflare Realtime SFU；缺省时音视频接口返回 503，文字不受影响 |
+| `TURN_KEY_ID` / `TURN_API_TOKEN` | Secret | 可选，限制性网络下的 TURN 中继 |
+| `SFU_DIAGNOSTICS` | Var | 置 `true` 时向客户端返回脱敏的 SFU 诊断 |
+
+各项限额集中在 [`src/shared.ts`](src/shared.ts) 的 `LIMITS`：文本 4000 字符、昵称 32、图片/语音 10 MiB、视频 100 MiB、普通文件 50 MiB、单房 8 人。
+
+---
+
+## 🔐 安全与隐私
+
+- **会话**：服务端随机 token，数据库仅存 SHA-256；`HttpOnly`、生产 `Secure`、`SameSite=Strict`、7 天过期。
+- **口令**：PBKDF2-SHA256、每房随机盐、常量时间比较；创建口令 ≥ 8 位；按 IP / 会话限速尝试。
+- **CSRF / 同源**：非 GET 请求校验 `Origin`，配合 `SameSite=Strict`。
+- **下载**：绑定会话/房间/消息的 HMAC 短票据（60s），强制 `attachment` + `nosniff`，不给客户端裸 R2 链接。
+- **上传**：先按申报大小/类型授权，确认时再校验实际 R2 对象大小与类型，最终写入不可覆盖的 key。
+- **限流**：Durable Object 原子固定窗口；会话/消息/上传/通话/口令尝试均限速。
+- **响应头**：CSP、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`Permissions-Policy`。
+- **隐私**：无 E2EE，服务端会处理并保存聊天记录与通话元数据（不保存通话媒体）。详见 [安全说明](#-状态与限制)。
+
+> 发现安全问题请勿公开提交 Issue，见 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 📱 客户端
+
+**Android**：原生客户端，直连本仓库的 Cloudflare 服务（非 WebView 套壳），UI 与网页同为微信 / 聊记风格。
+
+- 最新正式版（release 签名）：见 **[GitHub Releases](https://github.com/lyrnoxfan/cloudflare-anon-chat/releases)**
+- 源码：[`android/`](android/)，构建需 JDK 17、Android SDK 35、NDK 27.2、CMake 3.22
+- CI 通过 `.github/workflows/qingliao-android-sign-polish.yml` 构建并用发布证书签名
+
+```bash
+cd android
+./gradlew assembleDebug   # 本地调试包
+```
+
+---
+
+## 📂 目录结构
 
 ```
-src/index.ts       HTTP路由/会话/房间/签名R2上传/受保护下载/清理/Guard
-src/shared.ts      限制、校验、密码哈希、HMAC、数据库授权
-src/room.ts        DO顺序写入、历史、WS广播/成员、文件确认/删除
-src/sfu.ts         Realtime服务端适配、参会授权、轨道状态、清理与租约
-public/            原生HTML/CSS/JS，含MediaRecorder和WebRTC
-migrations/        D1 schema和固定公共大厅
-wrangler.jsonc     与代码对应的Assets/D1/R2/DO/cron绑定
-.dev.vars.example  环境示例，不含真实凭证
-r2-cors.example.json
-.github/workflows/check.yml  本地模拟器验证，不自动部署
-tests/             可复现集成测试、截图及本次记录
-docs/              官方API快照、阅读摘录、构建/迁移记录、验收清单
+src/            Worker：路由/会话/房间/上传签名/下载/清理/Guard
+  index.ts      HTTP 入口与资源、上传授权、受保护下载
+  room.ts       ChatRoom Durable Object：顺序写入、历史、WS 广播
+  sfu.ts        Realtime SFU 适配：参会授权、轨道、租约与清理
+  shared.ts     限额、校验、口令哈希、HMAC、DB 授权
+public/         原生 HTML/CSS/JS 前端（聊天、通话、表情）
+migrations/     D1 schema 与固定公共大厅
+android/        原生 Android 客户端（Java + JNI/C++ + WebRTC）
+docs/           验收、部署状态、审查记录与截图
+tests/          可复现集成 / SFU 契约 / 远程测试
+wrangler.jsonc            生产配置
+wrangler.test.jsonc       隔离测试 Worker 配置
 ```
 
-所有SQL参数化，无第三方UI框架，只有签名库aws4fetch为运行时依赖。生产bundle不包括Playwright。不要将 `.wrangler/`、`.build/`、`node_modules/` 或 `.dev.vars` 上传到Git。
+---
 
-## 5. 故障排查与真实验收
+## 📝 文档
 
-- `503 服务端安全密钥尚未配置`：检查APP_SECRET；“音视频服务未配置”：缺SFU配置，文字不受影响。
-- 私人房间403：先验证口令；Cookie会话/授权过期需重进，不通过改前端状态绕过。
-- R2上传403：检查token权限、bucket/account、S3 endpoint、CORS origin、Content-Type/Length和120秒过期。不要把API token输出到日志。取消后重选文件可获新授权；旧URL不会立刻失效，staging会自动清理。
-- MediaRecorder/getUserMedia：仅HTTPS/localhost，Safari/Android格式不同，代码探测可录格式；拒绝设备权限仍能聊天。摄像头切换需要真实设备支持，不能凭桌面合成设备测试说手机通过。
-- SFU 502：检查App配置和官方API响应；前端不接触App Secret。参会失败退出后重加入，待清理队列未清空时禁止新通话，防止无界泄露。检查TURN配置、UDP/防火墙、浏览器webrtc-internals。不要用发起成功/信令成功代替实际音视频通过。
-- `429`：真实后端限流，等窗口或调整集中限制；多用户NAT共享IP可能误伤。不能生产简单关闭权限或限流来“修好”。
+| 文档 | 内容 |
+|---|---|
+| [docs/DEPLOYMENT_STATUS.md](docs/DEPLOYMENT_STATUS.md) | 部署状态与验收记录 |
+| [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 验收清单 |
+| [docs/SOURCES.md](docs/SOURCES.md) | 官方 API / 价格依据与检索日期 |
+| [docs/REVIEW-2026-11-28.md](docs/REVIEW-2026-11-28.md) | 安全审查与改动记录 |
+| [android/README.md](android/README.md) | Android 客户端架构与构建 |
+| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | 安全策略 · 贡献指南 |
 
-真实部署后按 `docs/ACCEPTANCE.md` 测：两个独立浏览器一对一、三台设备多人发布订阅、双方实际听见/看见、远端退出轨道停止、私房未授权直接请求被拒、过期/旧票据、R2 CORS与超限上传、弱网、设备拒绝、切换前后摄像头、页面关闭后设备灯熄灭。**这些远程与真机验收当前尚未执行。**
+---
 
-## 6. 费用（2026-10-27查阅官方文档，不是免费承诺）
+## 📊 状态与限制
 
-- Workers Free：100,000请求/天、10ms CPU/次；付费Standard最低约US$5/月，包含1000万请求和3000万CPU-ms，超额分别$0.30/百万请求、$0.02/百万CPU-ms。PBKDF2、文件确认、DO/DB开销可能需要Paid；本地CPU不代表线上套餐可承受。
-- SQLite DO可用于Free/Paid；请求、运行时长和SQLite行读写/存储分别计量，休眠期间不收duration但心跳/通话alarm会唤醒。Guard每次限流也增加DO存储/请求，不能当作零成本。配额以账号控制台与官方最新价目为准。
-- D1 Free：每日500万行读/10万行写、总5GB；Paid包含每月250亿行读/5000万行写/5GB，超额$0.001/百万行读、$1/百万行写、$0.75/GB-month。文本长期增长、历史/心跳授权查询都占额度。
-- R2 Standard：前10GB-month、每月100万Class A/1000万Class B免费；超额约$0.015/GB-month、$4.50/百万A、$0.36/百万B，R2自身互联网egress无流量费。上传确认的staging复制、删除及预览/下载都产生操作；中转Worker仍有其自身请求成本。
-- Realtime SFU和TURN共享每月前1000GB免费egress，其后$0.05/GB；发布进入Cloudflare不收费，转发给每个订阅者的出站累计，视频多人尤其容易增长。不把R2免费egress误当SFU免费。
-- 自定义域名注册费用、其他账号产品、税费另计。设置预算告警并监控Workers/DO/D1/R2/Realtime控制台；代码里的上传速率不是硬性账单上限。
+本项目在本地模拟器（Wrangler/D1/R2/DO + Chromium 双会话）与隔离测试 Worker 上通过了真实收发、幂等、私人房间隔离、上传/下载、XSS 防护与策略校验。
 
-官方依据及检索日期见 `docs/SOURCES.md`；价格可能变化，实际合同/账单优先。
+以下仍以文档为准、尚需真机或生产环境验证，请不要把“本地/模拟通过”当作真机验收：
 
-私人房间创建后显示可复制的房号；其他人可通过「更多 → 通过房号加入」输入房号及房间口令。旧房间链接和 UUID 房号仍可使用。口令至少需要一个非空字符；短口令容易被猜到，请按需求选择。
+- 真机与弱网、TURN-only 网络下的音视频质量与音频路由
+- 完整跨设备视觉对齐、多人通话的长时间稳定性
+- 生产环境的 WAF / Turnstile、预算告警与滥用处置
 
-### 同名匿名会话
+详细的未验收项见 [docs/DEPLOYMENT_STATUS.md](docs/DEPLOYMENT_STATUS.md)。无 E2EE；媒体不做病毒扫描；文本与已确认媒体默认无自动 TTL。
 
-昵称均可重复，包括曾保留的名称；昵称不代表官方或管理身份。网页与 Android 用会话短码标出同名成员；消息记录、在线名单和通话对象均按会话 ID 区分，短码只用于展示，不参与鉴权。短码在同一匿名会话内保持稳定，改昵称不会更换会话 ID；过期后重新建立的匿名会话会获得新 ID。
+---
 
-Worker 的文本、媒体和历史消息会额外提供 `authorId`（与在线名单已有的公开匿名会话 ID 相同，不是登录 cookie）。已有数据无需迁移。支持旧服务端返回不含 `authorId` 的消息；这种消息没有短码，也不按同名合并。要让新客户端实际接受重名登录，服务端也必须更新。
+## 🗺 Roadmap
+
+- [x] 免注册匿名大厅 + 私人房间（口令）
+- [x] 文字 / 图片 / 语音 / 视频 / 文件消息
+- [x] 实时音视频通话（SFU）与移动端全屏 / 挂断常驻
+- [x] 微信 / 聊记风格主题 + 深色模式
+- [x] 原生 Android 客户端与 CI 签名发布
+- [ ] 消息按“同人同天 5 分钟”合并、组尾时间/头像（进行中）
+- [ ] 真机弱网与多人通话长时间稳定性验收
+- [ ] WAF / Turnstile 与运营级滥用治理
+
+---
+
+## 🤝 贡献
+
+欢迎 Issue 与 Pull Request。提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并确保 `pnpm check` 通过；涉及安全的改动请先在私下渠道沟通（见 [SECURITY.md](SECURITY.md)）。
+
+---
+
+## 📄 许可
+
+本项目为**专有软件（Proprietary）**，版权归作者所有，未经授权不得复制、分发或商用。详见 [LICENSE](LICENSE)。
+
+<div align="center"><sub>轻聊 · Qingliao — 让每一次匿名对话都轻快、干净、可靠。</sub></div>
