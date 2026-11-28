@@ -23,7 +23,11 @@ jobs:
           echo '18bf1e466bc4fbd2e091aa898c957b216c5c6e62123ac9dc704e41b7d85cb66f  input/old/qingliao-android-0.3.3-release-a92dd46.apk' | sha256sum -c -
       - name: Install isolated emulator
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" "emulator" "system-images;android-29;default;x86_64"'
-      - name: Offline previous-to-new signed upgrade
+      - name: Local Worker and TLS proxy dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq nginx
+          npm install --global pnpm@10.32.1 && pnpm install --frozen-lockfile
+      - name: Offline previous-to-new signed upgrade and local chat
         run: bash android/qa-fixture/release-upgrade-offline.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

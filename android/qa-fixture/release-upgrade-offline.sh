@@ -5,7 +5,7 @@ export ANDROID_AVD_HOME="$RUNNER_TEMP/upgrade-avd"
 mkdir -p "$ANDROID_AVD_HOME" android/evidence/upgrade
 out="$PWD/android/evidence/upgrade"
 exec > >(tee "$out/upgrade.log") 2>&1
-pid=''; cleanup(){ adb logcat -d > "$out/logcat.txt" 2>&1 || true; [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true; }; trap cleanup EXIT
+pid=''; worker_pid=''; cleanup(){ [[ -z "$worker_pid" ]] || kill "$worker_pid" 2>/dev/null || true; nginx -p "$RUNNER_TEMP/upgrade-nginx/" -c "$RUNNER_TEMP/upgrade-nginx/nginx.conf" -s stop 2>/dev/null || true; adb logcat -d > "$out/logcat.txt" 2>&1 || true; [[ -z "$pid" ]] || kill "$pid" 2>/dev/null || true; }; trap cleanup EXIT
 old=input/old/qingliao-android-0.3.3-release-a92dd46.apk
 new=input/new/qingliao-liaoji-release-fb27f3b.apk
 sha256sum "$old" "$new"
@@ -65,3 +65,58 @@ assert any(n.get('text') == 'UpgradeCanary' for n in ns), 'saved nickname not vi
 assert any(n.get('text') == '进入聊天' for n in ns), 'updated chat entry screen not visible'
 print('PASS: signed upgrade succeeded, test preference preserved and visible on entry screen; no network exercised')
 PY
+
+# The signed release has a fixed HTTPS host; route it exclusively to the
+# loopback local Worker via an ephemeral test CA and an in-emulator hosts bind.
+# Default-deny egress remains active throughout; no production interaction.
+mkdir -p "$RUNNER_TEMP/tls" "$RUNNER_TEMP/upgrade-nginx" "$out/local-chat"
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/tls/ca.key" -out "$RUNNER_TEMP/tls/ca.crt" -days 1 -subj '/CN=Qingliao Offline Test CA' > /dev/null 2>&1
+openssl req -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/tls/site.key" -out "$RUNNER_TEMP/tls/site.csr" -subj '/CN=chat.lyrnox.com' > /dev/null 2>&1
+printf 'subjectAltName=DNS:chat.lyrnox.com\nextendedKeyUsage=serverAuth\n' > "$RUNNER_TEMP/tls/site.ext"
+openssl x509 -req -in "$RUNNER_TEMP/tls/site.csr" -CA "$RUNNER_TEMP/tls/ca.crt" -CAkey "$RUNNER_TEMP/tls/ca.key" -CAcreateserial -out "$RUNNER_TEMP/tls/site.crt" -days 1 -extfile "$RUNNER_TEMP/tls/site.ext" > /dev/null 2>&1
+hash=$(openssl x509 -inform PEM -subject_hash_old -in "$RUNNER_TEMP/tls/ca.crt" | head -1)
+adb push "$RUNNER_TEMP/tls/ca.crt" /data/local/tmp/test-ca.crt
+adb shell 'mkdir -p /data/local/tmp/system-cacerts && cp /system/etc/security/cacerts/* /data/local/tmp/system-cacerts/ && mount -t tmpfs tmpfs /system/etc/security/cacerts && cp /data/local/tmp/system-cacerts/* /system/etc/security/cacerts/'
+adb shell cp /data/local/tmp/test-ca.crt "/system/etc/security/cacerts/$hash.0"
+adb shell chmod 644 "/system/etc/security/cacerts/$hash.0"
+adb shell restorecon -R /system/etc/security/cacerts
+printf '127.0.0.1 localhost chat.lyrnox.com\n::1 localhost\n' > "$RUNNER_TEMP/hosts"
+adb push "$RUNNER_TEMP/hosts" /data/local/tmp/offline-hosts
+adb shell mount --bind /data/local/tmp/offline-hosts /system/etc/hosts
+adb shell cat /system/etc/hosts | tee "$out/local-chat/hosts.txt"
+adb shell iptables -S OUTPUT | tee "$out/local-chat/firewall.txt"
+grep -Fx -- '-P OUTPUT DROP' "$out/local-chat/firewall.txt"
+adb reverse tcp:443 tcp:8443
+node node_modules/wrangler/bin/wrangler.js d1 migrations apply chat --local --config android/qa-fixture/wrangler.local.json --persist-to "$RUNNER_TEMP/local-release-worker" > "$out/local-chat/migrations.log" 2>&1
+node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 8000 --config android/qa-fixture/wrangler.local.json --persist-to "$RUNNER_TEMP/local-release-worker" --var "APP_SECRET:$(openssl rand -hex 32)" > "$out/local-chat/worker.log" 2>&1 & worker_pid=$!
+up=false; for i in $(seq 1 60); do if curl -fsS http://127.0.0.1:8000/ >/dev/null; then up=true; break; fi; kill -0 "$worker_pid"; sleep 1; done; [[ "$up" == true ]]
+cat > "$RUNNER_TEMP/upgrade-nginx/nginx.conf" <<CONFIG
+pid $RUNNER_TEMP/upgrade-nginx/nginx.pid;
+events { worker_connections 128; }
+http {
+  access_log $out/local-chat/proxy-access.log;
+  error_log $out/local-chat/proxy-error.log;
+  server {
+    listen 127.0.0.1:8443 ssl;
+    ssl_certificate $RUNNER_TEMP/tls/site.crt;
+    ssl_certificate_key $RUNNER_TEMP/tls/site.key;
+    location / {
+      proxy_pass http://127.0.0.1:8000;
+      proxy_http_version 1.1;
+      proxy_set_header Host \$host;
+      proxy_set_header Upgrade \$http_upgrade;
+      proxy_set_header Connection \$http_connection;
+      proxy_read_timeout 300s;
+    }
+  }
+}
+CONFIG
+nginx -p "$RUNNER_TEMP/upgrade-nginx/" -c "$RUNNER_TEMP/upgrade-nginx/nginx.conf"
+curl --resolve chat.lyrnox.com:8443:127.0.0.1 --noproxy '*' --cacert "$RUNNER_TEMP/tls/ca.crt" -fsS https://chat.lyrnox.com:8443/ > /dev/null
+adb shell am force-stop com.lyrnox.qingliao
+# Reuse the previously verified UI checks, changing only package ID for the
+# exact release APK; the local tunnel replaces its hard-coded origin.
+sed "s/PKG='com.lyrnox.qingliao.qa'/PKG='com.lyrnox.qingliao'/" android/qa-fixture/visual-native.py > "$RUNNER_TEMP/release-visual.py"
+export QA_EVIDENCE="$out/local-chat"
+python3 "$RUNNER_TEMP/release-visual.py" | tee "$out/local-chat/test.txt"
+echo 'PASS: original signed APK exercised against isolated local Worker only'
