@@ -6,16 +6,10 @@ export function need(value:unknown,status=400,message='请求参数不正确'):a
 export const id=()=>crypto.randomUUID();
 export const now=()=>Date.now();
 export function text(v:unknown,max:number,min=1){need(typeof v==='string'&&v.trim().length>=min&&v.length<=max);return (v as string).trim()}
-// 昵称规范化：NFKC 折叠全角/兼容字符，去掉零宽字符与软连字符，
-// 防止用视觉相同的变体冒充他人（如全角 ｌｙｒｎｏｘ、带零宽字符的版本）。
+// 昵称规范化：NFKC 折叠全角/兼容字符，去掉零宽字符与软连字符。
+// 昵称可重复且不能证明身份；权限由已认证会话及房间授权决定。
 export function normalizeNickname(raw:string):string{
   return raw.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF\u00AD]/g,'').trim();
-}
-// 系统保留昵称：普通会话禁止使用，防冒充站主/官方。
-export const RESERVED_NICKNAMES=new Set(['lyrnox','admin','administrator','system','系统','客服','官方','站长','版主','moderator']);
-// 昵称仅用于展示，允许重名；会话 ID 才是身份。
-export function validateNickname(nickname:string):void{
-  need(!RESERVED_NICKNAMES.has(nickname.toLowerCase()),409,'该昵称已被保留');
 }
 export function cid(v:unknown){return text(v,80)}
 export const json=(v:unknown,status=200,headers:HeadersInit={})=>Response.json(v,{status,headers:{'Cache-Control':'no-store',...headers}});

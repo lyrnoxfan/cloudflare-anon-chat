@@ -147,7 +147,22 @@ test('duplicate nicknames keep membership, messages and call targets distinct', 
   assert.equal(h.find(m=>m.id===m2.id).mine,true);
   assert.equal((await api(second,'/api/r/lobby/delete/'+m1.id,'POST',{})).status,403);
   assert.equal((await api(first,'/api/r/lobby/delete/'+m1.id,'POST',{})).status,200);
-  assert.equal((await api(first,'/api/session','POST',{nickname:'ＡＤＭＩＮ'})).status,409);
+  const reserved=await api(first,'/api/session','POST',{nickname:'ＡＤＭＩＮ'});assert.equal(reserved.status,200);assert.equal(reserved.body.nickname,'ADMIN');assert.equal(reserved.body.id,one);
+  const same=await api(second,'/api/session','POST',{nickname:'ADMIN'});assert.equal(same.status,200);assert.equal(same.body.id,two);assert.notEqual(same.body.id,reserved.body.id);
   assert.equal((await api(first,'/api/session','POST',{nickname:'同名观察'})).body.id,one);
  } finally {await Promise.all(contexts.map(c=>c.close()));}
+});
+
+
+test('formerly reserved names can create independent sessions without changing authorization', {timeout:45000}, async()=>{
+ const contexts=await Promise.all([browser.newContext(),browser.newContext()]);
+ try {
+  const [x,y]=await Promise.all(contexts.map(c=>c.newPage()));await Promise.all([x,y].map(p=>p.goto(base)));
+  assert.equal((await api(x,'/api/session','POST',{nickname:'\u200b'})).status,400);
+  const names=process.env.NICKNAME_EXHAUSTIVE==='1'?['lyrnox','admin','administrator','system','系统','客服','官方','站长','版主','moderator']:['lyrnox','官方'];
+  for(const name of names){
+   const a=await api(x,'/api/session','POST',{nickname:name});const b=await api(y,'/api/session','POST',{nickname:name});
+   assert.equal(a.status,200,`${name} first`);assert.equal(b.status,200,`${name} second`);assert.notEqual(a.body.id,b.body.id);
+  }
+ } finally {await Promise.all(contexts.map(c=>c.close()))}
 });
