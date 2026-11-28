@@ -150,5 +150,7 @@ adb shell am force-stop com.lyrnox.qingliao
 # exact release APK; the local tunnel replaces its hard-coded origin.
 sed "s/PKG='com.lyrnox.qingliao.qa'/PKG='com.lyrnox.qingliao'/" android/qa-fixture/visual-native.py > "$RUNNER_TEMP/release-visual.py"
 export QA_EVIDENCE="$out/local-chat"
+adb shell wm size 720x1440
+adb shell wm density 320
 python3 "$RUNNER_TEMP/release-visual.py" | tee "$out/local-chat/test.txt"
 echo 'PASS: original signed APK exercised against isolated local Worker only'
