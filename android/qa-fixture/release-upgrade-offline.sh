@@ -26,7 +26,11 @@ adb shell svc wifi disable || true
 adb shell svc data disable || true
 # Device-wide egress is blocked before either release app starts; no production requests.
 adb shell iptables -P OUTPUT DROP
+adb shell iptables -I OUTPUT 1 ! -o lo -j REJECT
 adb shell iptables -I OUTPUT 1 -o lo -j ACCEPT
+adb shell ip6tables -P OUTPUT DROP
+adb shell ip6tables -I OUTPUT 1 ! -o lo -j REJECT
+adb shell ip6tables -I OUTPUT 1 -o lo -j ACCEPT
 adb shell iptables -C OUTPUT -o lo -j ACCEPT
 adb shell iptables -S OUTPUT | tee "$out/firewall.txt"
 grep -Fx -- '-P OUTPUT DROP' "$out/firewall.txt"
@@ -82,7 +86,24 @@ adb shell chmod 644 "/system/etc/security/cacerts/$hash.0"
 adb shell restorecon -R /system/etc/security/cacerts
 printf '127.0.0.1 localhost chat.lyrnox.com\n::1 localhost\n' > "$RUNNER_TEMP/hosts"
 adb push "$RUNNER_TEMP/hosts" /data/local/tmp/offline-hosts
+adb shell chmod 644 /data/local/tmp/offline-hosts
 adb shell mount --bind /data/local/tmp/offline-hosts /system/etc/hosts
+# Restart zygote/netd so app and resolver inherit the isolated host/cert mounts.
+# Egress is rejected before enabling network; assert again after service restart.
+adb shell setenforce 0
+adb shell svc wifi enable || true
+adb shell setprop ctl.restart netd
+adb shell setprop ctl.restart zygote
+sleep 15
+adb wait-for-device
+adb root || true
+adb wait-for-device
+adb shell iptables -I OUTPUT 1 ! -o lo -j REJECT
+adb shell iptables -I OUTPUT 1 -o lo -j ACCEPT
+adb shell ip6tables -I OUTPUT 1 ! -o lo -j REJECT
+adb shell ip6tables -I OUTPUT 1 -o lo -j ACCEPT
+adb shell ping -c 1 -W 3 chat.lyrnox.com | tee "$out/local-chat/resolver.txt"
+grep -F '127.0.0.1' "$out/local-chat/resolver.txt"
 adb shell cat /system/etc/hosts | tee "$out/local-chat/hosts.txt"
 adb shell iptables -S OUTPUT | tee "$out/local-chat/firewall.txt"
 grep -Fx -- '-P OUTPUT DROP' "$out/local-chat/firewall.txt"
