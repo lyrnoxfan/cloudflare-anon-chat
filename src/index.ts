@@ -12,7 +12,13 @@ export async function sweep(env:Env){
  const garbage=await env.DB.prepare('SELECT object_key FROM garbage WHERE created<? LIMIT 100').bind(now()).all<any>();for(const g of garbage.results){await env.MEDIA.delete(g.object_key);await env.DB.prepare('DELETE FROM garbage WHERE object_key=?').bind(g.object_key).run()}
  const completed=await env.DB.prepare("SELECT id,staging_key FROM uploads WHERE status='complete' AND expires<? LIMIT 100").bind(now()-300000).all<any>();for(const u of completed.results){await env.MEDIA.delete(u.staging_key);await env.DB.prepare('DELETE FROM uploads WHERE id=?').bind(u.id).run()}
  await env.DB.prepare('DELETE FROM room_sessions WHERE expires<?').bind(now()).run();
- // Preserve stable authorship on long-lived messages; expired sessions are not renewed.
+ // Expired anonymous sessions are purged once no room grant still references them; authorship on stored
+ // messages is denormalized in messages.nickname, so removing the auth row never alters chat history.
+ await env.DB.prepare('DELETE FROM anonymous_sessions WHERE expires<? AND id NOT IN (SELECT session_id FROM room_sessions)').bind(now()).run();
+ // Drop ended call records/participants older than 7 days so calls/call_participants do not grow unbounded.
+ const callCutoff=now()-7*86400000;
+ await env.DB.prepare('DELETE FROM call_participants WHERE call_id IN (SELECT id FROM calls WHERE ended IS NOT NULL AND ended<?)').bind(callCutoff).run();
+ await env.DB.prepare('DELETE FROM calls WHERE ended IS NOT NULL AND ended<?').bind(callCutoff).run();
 }
 export default {
  async scheduled(_e:ScheduledController,env:Env,ctx:ExecutionContext){ctx.waitUntil(sweep(env))},
@@ -31,7 +37,7 @@ export default {
    const s=await session(req,env);
    if(p==='/api/session'&&req.method==='GET')return json({...s,limits:LIMITS,sfu:!!(env.SFU_APP_ID&&env.SFU_APP_SECRET)});
    if(p==='/api/rooms'&&req.method==='POST'){
-     await rate(env,'create:ip:'+ip,5,3600000);await rate(env,'create:s:'+s.id,5,3600000);const b=await body(req);const name=text(b.name,LIMITS.roomName),pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin),salt=id(),hash=await password(pw,salt);
+     await rate(env,'create:ip:'+ip,5,3600000);await rate(env,'create:s:'+s.id,5,3600000);const b=await body(req);const name=text(b.name,LIMITS.roomName),pw=text(b.password,LIMITS.passwordMax,LIMITS.passwordMin),salt=id(),hash=await password(pw,salt);need(pw.length>=8,400,'房间口令至少 8 个字符');
      // Private room IDs double as shareable numbers. Existing UUID room IDs remain valid.
      for(let attempt=0;attempt<8;attempt++){
        const n=crypto.getRandomValues(new Uint32Array(2));const room=String(1000000000+Number(((BigInt(n[0])<<32n)|BigInt(n[1]))%9000000000n));
@@ -69,7 +75,7 @@ export default {
    const headers=new Headers(req.headers);headers.set('x-chat-session',JSON.stringify(s));headers.set('x-chat-room',rid);headers.set('x-chat-ip',ip);
    return await env.ROOMS.get(env.ROOMS.idFromName(rid)).fetch(new Request(req,{headers}));
  }
- const res=await env.ASSETS.fetch(req);const h=new Headers(res.headers);h.set('X-Content-Type-Options','nosniff');h.set('Referrer-Policy','no-referrer');h.set('Permissions-Policy','camera=(self), microphone=(self)');h.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self' wss: https://*.r2.cloudflarestorage.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");return new Response(res.body,{status:res.status,headers:h});
+ const res=await env.ASSETS.fetch(req);const h=new Headers(res.headers);h.set('X-Content-Type-Options','nosniff');h.set('Referrer-Policy','no-referrer');h.set('Permissions-Policy','camera=(self), microphone=(self)');h.set('Content-Security-Policy',"default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self' wss: https://*.r2.cloudflarestorage.com https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");return new Response(res.body,{status:res.status,headers:h});
  }catch(e){console.error('chat request failure',new URL(req.url).pathname,e instanceof Error?e.name+': '+e.message:'unknown');if(e instanceof Fault)return json({error:e.message},e.status);return json({error:'服务暂时不可用，请稍后重试'},500)}}
 } satisfies ExportedHandler<Env>;
 export async function uploadURL(env:Env,u:any,base:string){if(env.DEV_LOCAL==='true'&&['localhost','127.0.0.1'].includes(new URL(base).hostname))return new URL(`/api/r/${u.room_id}/local-upload/${u.id}`,base).href;

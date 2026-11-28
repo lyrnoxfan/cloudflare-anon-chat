@@ -20,3 +20,65 @@ body{position:fixed;inset:var(--viewport-top,0px) 0 auto;width:100%;height:var(-
 .emoji-picker{max-height:max(84px,calc(var(--app-height) - var(--header-height,77px) - 112px));max-width:calc(100vw - 20px);overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 
 .emoji-picker button img{display:block;width:30px;height:30px;object-fit:contain}.inline-emoji{display:inline-block;width:1.5em;height:1.5em;vertical-align:middle;object-fit:contain}
+
+/* ============================================================
+   WeChat / 聊记 风格主题（2026-11-28 改版）
+   参考：聊记 android res/values/colors.xml 与 preview.png
+   只覆盖配色与少量质感，原有结构、交互、无障碍不变。
+   ============================================================ */
+:root{
+  --page:#EDE3D3;
+  --surface:#FCF5EB;
+  --topbar:#FBF3E7;
+  --ink:#201B15;
+  --muted:#9A8F7F;
+  --other:#FFFFFF;
+  --mine:#95EC69;
+  --green:#C66A3A;
+  --soft:#F1E7D8;
+  --line:#ECE2D2;
+  --overlay:#201b1566;
+  --focus:#C66A3A;
+  --danger:#C0492F;
+}
+/* 顶栏、侧栏、输入区统一暖米色 */
+.topbar{background:var(--topbar)}
+#sidebar{background:var(--surface)}
+.composer-wrap{background:var(--topbar)}
+/* 气泡：收到=白底描边，发出=微信绿 */
+.bubble{border:1px solid #00000008;box-shadow:0 1px 2px #0000000d}
+.message.mine .bubble{border-color:transparent;box-shadow:0 1px 2px #0000000d}
+/* 头像：彩色纯底 + 白字（聊记风格） */
+.message-avatar{color:#fff;font-weight:600;text-shadow:0 1px 1px #0000001f}
+/* 发送按钮：绿底深绿图标 */
+#composer #send{background:var(--mine);color:#15500a}
+#composer #send:disabled{opacity:.45}
+/* 强调 / 错误 / 主按钮文字 */
+.error{color:var(--danger)}
+.primary-action{color:#12330a}
+.brand-mark,.dialog-symbol{color:var(--green)}
+/* 未读胶囊 / 选中态 */
+.unread-pill{background:var(--mine);color:#12330a}
+.nav-item.is-current{background:var(--soft)}
+/* 夜间暖色板 */
+@media(prefers-color-scheme:dark){
+  :root{
+    --page:#14100C;
+    --surface:#1B1611;
+    --topbar:#221C15;
+    --ink:#EFE6D8;
+    --muted:#A99C89;
+    --other:#2A241D;
+    --mine:#3F6B2E;
+    --green:#E0A278;
+    --soft:#332C24;
+    --line:#2E2820;
+    --overlay:#00000099;
+    --focus:#E0A278;
+    --danger:#E58A6E;
+  }
+  .bubble{border-color:#ffffff0f;box-shadow:0 1px 2px #00000040}
+  .message.mine .bubble{border-color:transparent;color:#eafbe0}
+  #composer #send{background:#3F6B2E;color:#eafbe0}
+  .unread-pill,.primary-action{color:#eafbe0}
+}
