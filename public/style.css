@@ -82,3 +82,32 @@ body{position:fixed;inset:var(--viewport-top,0px) 0 auto;width:100%;height:var(-
   #composer #send{background:#3F6B2E;color:#eafbe0}
   .unread-pill,.primary-action{color:#eafbe0}
 }
+
+/* ============================================================
+   通话面板移动端可用性修复（2026-11-28）
+   之前 .call-panel{max-height:46vh;overflow:auto} 会让视频把「挂断」等
+   控制条挤到折叠线以下，必须下滑才能碰到，不知道要滑就无法挂断。
+   改为：面板纵向布局、仅视频区滚动，控制条常驻面板底部。
+   ============================================================ */
+.call-panel{display:flex;flex-direction:column;max-height:min(72vh,560px);overflow:hidden;padding:12px 14px calc(12px + env(safe-area-inset-bottom))}
+.call-panel-heading{flex:none;min-height:20px}
+#videos{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.controls{flex:none;position:relative;z-index:2;margin-top:8px;padding-top:8px;background:var(--other);box-shadow:0 -6px 12px -8px #00000022}
+.call-control.danger{background:#C0492F;color:#fff}
+/* 手机上把挂断做成醒目的固定红色主按钮 */
+@media(max-width:600px){
+  .call-panel{max-height:68vh;padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
+  #videos video{max-height:170px}
+  .controls{gap:6px}
+  .call-control{min-height:42px;padding:8px 10px}
+  .call-control.danger{flex:1 1 100%;min-height:48px;font-weight:600;font-size:14px}
+}
+
+/* 通话全屏（2026-11-28）：整屏看人，控制条与挂断常驻底部 */
+.call-panel.is-fullscreen{position:fixed;inset:0;z-index:80;max-height:none;height:100%;width:100%;border-radius:0;background:var(--surface);padding:calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
+.call-panel.is-fullscreen #videos{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));align-content:center;gap:10px}
+.call-panel.is-fullscreen #videos video{max-height:none}
+.call-panel:fullscreen{max-height:none;height:100%;width:100%;padding:calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
+.call-panel:fullscreen #videos{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));align-content:center}
+.call-panel:fullscreen #videos video{max-height:none}
+@media(max-width:600px){.call-panel.is-fullscreen #videos{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
